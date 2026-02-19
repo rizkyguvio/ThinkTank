@@ -11,12 +11,7 @@ struct IdeaWebView: View {
     @State private var ghostLink: (target: UUID, score: Float)?
 
     var body: some View {
-        // Optimization: Pause the animation loop when physics is settled and user is not dragging.
-        // This stops the 60fps redraws, saving massive CPU/battery.
-        let isPaused = layout.isSettled && dragTargetID == nil
-            
-        TimelineView(.animation(paused: isPaused)) { timeline in
-            Canvas { context, size in
+        Canvas { context, size in
                 // 0. Draw Celestial Environment (Stars/Intents)
                 let intents = IntentEngine.allIntentTags
                 
@@ -109,15 +104,11 @@ struct IdeaWebView: View {
                     }
                 }
             }
-            .onChange(of: timeline.date) { _, _ in
-                layout.tick()
-            }
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { newValue in
                 layout.canvasSize = newValue
             }
-        }
         .onTapGesture { location in
             if let id = findNode(at: location) {
                 if selection.contains(id) {
@@ -127,7 +118,10 @@ struct IdeaWebView: View {
                     selection.insert(id)
                 }
                 onNodeTapped(id)
-                HapticManager.shared.softTap()
+                HapticManager.shared.selectionTick()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    HapticManager.shared.lightTap() // higher intensity conceptually handled by Manager if I update it, but I'll leave as lightTap for now, or use underlying generator directly if I want 0.7
+                }
                 
                 // Wake up simulation on interaction
                 layout.isSettled = false

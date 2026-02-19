@@ -71,8 +71,9 @@ final class BackupManager {
         do {
             let url = try URL(resolvingBookmarkData: data, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
             if isStale {
-                print("Bookmark is stale, needs renewal.")
-                // In a robust app, we'd ask user to re-pick. For now, try to use it.
+                print("Bookmark is stale. Clearing from UserDefaults.")
+                UserDefaults.standard.removeObject(forKey: bookmarkKey)
+                return nil
             }
             return url
         } catch {

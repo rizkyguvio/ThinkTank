@@ -10,6 +10,8 @@ struct NotesView: View {
     @Query(sort: \Idea.createdAt, order: .reverse) private var allIdeas: [Idea]
     @Query private var edges: [GraphEdge]
 
+    @ObservedObject var processor: RipItProcessor
+    
     @State private var sortNewestFirst = true
     @State private var filterStatus: IdeaStatus? = .active
     @State private var searchText = ""
@@ -120,16 +122,22 @@ struct NotesView: View {
                 }
             }
         }
+        .onChange(of: searchText) { old, new in
+            if old.isEmpty && !new.isEmpty {
+                HapticManager.shared.selectionTick()
+            }
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showSettings) {
             SystemActionsSheet(
+                processor: processor,
                 activeImporter: $activeImporter,
                 backupFile: $backupFile,
                 restoreMessage: $restoreMessage,
                 showRestoreAlert: $showRestoreAlert
             )
-            .presentationDetents([.height(480)])
+            .presentationDetents([.height(520)])
             .presentationDragIndicator(.visible)
         }
         .fileImporter(
@@ -291,16 +299,22 @@ struct NotesView: View {
             // Header
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(allIdeas.count) Captured Ideas")
+                    let count = filteredIdeas.count
+                    let statusLabel = filterStatus?.label ?? "Captured"
+                    Text("\(count) \(statusLabel) \(count == 1 ? "Idea" : "Ideas")")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Pastel.primaryText.opacity(0.8))
                     
-                    if let status = filterStatus {
-                        Text("Showing \(status.label) only")
+                    if let tag = selectedTag {
+                        Text("Filtered by #\(tag)")
                             .font(.system(size: 11))
-                            .foregroundStyle(Pastel.color(for: status))
+                            .foregroundStyle(Pastel.mint)
+                    } else if !searchText.isEmpty {
+                        Text("Searching for \"\(searchText)\"")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Pastel.accent)
                     } else {
-                        Text("Your total collection")
+                        Text(filterStatus == nil ? "Your total collection" : "Filtered view")
                             .font(.system(size: 11))
                             .foregroundStyle(Pastel.primaryText.opacity(0.3))
                     }
@@ -319,6 +333,7 @@ struct NotesView: View {
                 } onDelete: {
                     deleteIdea(idea)
                 }
+                .id(idea.id)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
@@ -346,6 +361,7 @@ struct NotesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, 140, for: .scrollContent)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: filteredIdeas.map(\.id))
     }
 
     private var emptyState: some View {
@@ -365,19 +381,32 @@ struct NotesView: View {
     }
 
     private func changeStatus(_ idea: Idea, to newStatus: IdeaStatus) {
-        withAnimation { idea.status = newStatus }
-        HapticManager.shared.softTap()
-        WidgetCenter.shared.reloadAllTimelines()
+        if newStatus == .archived {
+            HapticManager.shared.archivePulse()
+        } else {
+            HapticManager.shared.softTap()
+        }
+        
+        // Phase 1: Update the model immediately.
+        idea.status = newStatus
+        
+        // Phase 2: Widget reload (no animation override)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     private func deleteIdea(_ idea: Idea) {
-        withAnimation {
-            modelContext.delete(idea)
-            try? modelContext.save()
+        HapticManager.shared.triggerMediumImpact()
+        
+        // Phase 1: Delete
+        modelContext.delete(idea)
+        try? modelContext.save()
+        
+        // Phase 2: Widget
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             WidgetCenter.shared.reloadAllTimelines()
         }
-        HapticManager.shared.triggerMediumImpact()
-        // Reset state for safety (though the card will be removed)
     }
 
     private func fetchConnected(for idea: Idea) -> [Idea] {
@@ -425,6 +454,8 @@ struct NoteCard: View {
     let onTap: () -> Void
     let onStatusChange: (IdeaStatus) -> Void
     let onDelete: () -> Void
+    
+    @State private var isPressed = false
 
     var body: some View {
         // Pure visual card - swipe actions handled by parent List
@@ -475,11 +506,25 @@ struct NoteCard: View {
                 Button { onStatusChange(status) } label: { Label(status.label, systemImage: status.icon) }
             }
         } label: {
-            Image(systemName: idea.status.icon)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(statusColor)
-                .padding(10).background(statusColor.opacity(0.12)).clipShape(Circle())
+            HStack(spacing: 4) {
+                Image(systemName: idea.status.icon)
+                    .font(.system(size: 10, weight: .bold))
+                
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .black))
+                    .opacity(0.5)
+            }
+            .foregroundStyle(statusColor)
+            .padding(10)
+            .background(statusColor.opacity(0.12))
+            .clipShape(Circle())
+            .scaleEffect(isPressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
         }
+        .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
+            isPressed = pressing
+        }, perform: {})
+        .buttonStyle(PlainButtonStyle())
     }
 
     private var tagsView: some View {
@@ -502,6 +547,8 @@ struct SystemActionsSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     
+    @ObservedObject var processor: RipItProcessor
+    
     @Binding var activeImporter: NotesView.ImporterType?
     @Binding var backupFile: BackupWrapper?
     @Binding var restoreMessage: String?
@@ -522,6 +569,13 @@ struct SystemActionsSheet: View {
                     .padding(.horizontal, 24)
                 
                 VStack(spacing: 12) {
+                        Button {
+                            processor.reprocessAll()
+                            dismiss()
+                        } label: {
+                            SystemActionRow(title: "Reprocess Library", icon: "sparkles", color: Pastel.mint)
+                        }
+
                         Button {
                             Task {
                                 if let url = try? BackupManager.shared.createBackup(modelContext: modelContext) {
@@ -710,7 +764,10 @@ struct FilterPill: View {
     let onClear: () -> Void
     
     var body: some View {
-        Button(action: onClear) {
+        Button {
+            onClear()
+            HapticManager.shared.snapOff()
+        } label: {
             HStack(spacing: 6) {
                 Text(label).font(.system(size: 11, weight: .bold))
                 Image(systemName: "xmark.circle.fill").font(.system(size: 12))

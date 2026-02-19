@@ -38,6 +38,23 @@ nonisolated enum EmergingSignals {
         now: Date = .now
     ) -> [Signal] {
         let calendar = Calendar.current
+        let totalIdeas = ideas.count
+        
+        // Adaptive Sensitivity: Scale gates based on corpus size.
+        let minFrequency: Int
+        let minRecent: Int
+        let momentumThreshold: Float
+        
+        switch totalIdeas {
+        case ..<10:
+            minFrequency = 1; minRecent = 1; momentumThreshold = 0.1
+        case 10..<25:
+            minFrequency = 2; minRecent = 1; momentumThreshold = 0.3
+        case 25..<50:
+            minFrequency = 3; minRecent = 2; momentumThreshold = 0.8
+        default:
+            minFrequency = 5; minRecent = 3; momentumThreshold = 1.2
+        }
 
         let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: now)!
         let fourteenDaysAgo = calendar.date(byAdding: .day, value: -14, to: now)!
@@ -66,8 +83,8 @@ nonisolated enum EmergingSignals {
         var signals: [Signal] = []
 
         for theme in themes {
-            // Noise gate: minimum corpus presence.
-            guard theme.totalFrequency >= 5 else { continue }
+            // Noise gate: minimum corpus presence (Scaled).
+            guard theme.totalFrequency >= minFrequency else { continue }
 
             // Cooldown: don't resurface within 14 days.
             if let lastShown = theme.lastEmergingDate, lastShown >= cooldownCutoff {
@@ -77,8 +94,8 @@ nonisolated enum EmergingSignals {
             let themeRecent = recentByTag[theme.name] ?? []
             let themePrior = priorByTag[theme.name] ?? []
             
-            // Skip themes with insufficient recent activity
-            guard themeRecent.count >= 3 else { continue }
+            // Skip themes with insufficient recent activity (Scaled)
+            guard themeRecent.count >= minRecent else { continue }
             
             let densityRecent = GraphEngine.semanticDensity(clusterNodeIDs: themeRecent.map(\.id), ideas: themeRecent)
             let densityPrior = GraphEngine.semanticDensity(clusterNodeIDs: themePrior.map(\.id), ideas: themePrior)
@@ -87,7 +104,7 @@ nonisolated enum EmergingSignals {
             let baselineDensity = max(densityPrior, 0.1)
             let momentum = Float(densityRecent / baselineDensity)
 
-            guard momentum >= 1.2 else { continue }
+            guard momentum >= momentumThreshold else { continue }
 
             signals.append(Signal(themeName: theme.name, momentum: momentum))
         }

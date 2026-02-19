@@ -38,7 +38,7 @@ nonisolated enum SynthesisEngine {
         if !sharedThemes.isEmpty, let theme = sharedThemes.first {
             return SynthesisResult(
                 prompt: "Deepen your '\(theme)' core.",
-                insight: "Both thoughts converge on '\(theme)'. Since '\(ideaA.content.prefix(20))...' and '\(ideaB.content.prefix(20))...' share this root, what is the underlying principle they both serve?",
+                insight: "Both thoughts converge on '\(theme)'. Since '\(ideaA.content.truncatedWords(amount: 5))' and '\(ideaB.content.truncatedWords(amount: 5))' share this root, what is the underlying principle they both serve?",
                 confidence: 0.8
             )
         }
@@ -47,7 +47,7 @@ nonisolated enum SynthesisEngine {
         if !intersection.isEmpty, let bridge = intersection.first {
             return SynthesisResult(
                 prompt: "Bridge via '\(bridge)'.",
-                insight: "You mentioned '\(bridge)' in two different contexts. How can the structure of '\(ideaA.content.prefix(15))...' be applied to improve '\(ideaB.content.prefix(15))...'?",
+                insight: "You mentioned '\(bridge)' in two different contexts. How can the structure of '\(ideaA.content.truncatedWords(amount: 4))' be applied to improve '\(ideaB.content.truncatedWords(amount: 4))'?",
                 confidence: 0.7
             )
         }
@@ -58,5 +58,14 @@ nonisolated enum SynthesisEngine {
             insight: "These ideas are conceptually distant (\(Int(similarity * 100))% match). If you were forced to combine them, what third perspective is born from the friction between '\(themesA.first ?? "A")' and '\(themesB.first ?? "B")'?",
             confidence: Float(similarity)
         )
+    }
+}
+
+// MARK: - String Utilities
+extension String {
+    nonisolated func truncatedWords(amount: Int) -> String {
+        let words = self.components(separatedBy: .whitespacesAndNewlines)
+        if words.count <= amount { return self }
+        return words.prefix(amount).joined(separator: " ") + "..."
     }
 }

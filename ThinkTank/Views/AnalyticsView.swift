@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// The main Analytics page — orchestrates the idea web, emerging signals,
+/// The main Analytics page â€” orchestrates the idea web, emerging signals,
 /// and north star metric.
 ///
 /// This is the primary view the user sees when navigating to the Analytics tab.
@@ -20,7 +20,7 @@ struct AnalyticsView: View {
     @State private var showDetailSheet = false
     @State private var zoomScale: CGFloat = 1.0
 
-    // Computed graph data — recomputed when ideas/edges change.
+    // Computed graph data â€” recomputed when ideas/edges change.
     private var graphData: GraphSnapshot {
         computeGraph()
     }
@@ -28,22 +28,24 @@ struct AnalyticsView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 24) {
-                // ─── Idea Web (primary) ───
+                // â”€â”€â”€ Idea Web (primary) â”€â”€â”€
                 ideaWebSection
 
-                // ─── North Star Metric ───
+                // â”€â”€â”€ North Star Metric â”€â”€â”€
                 if !ideas.isEmpty {
                     NorthStarMetricView(
                         gravity: graphData.gravity,
                         momentum: graphData.topMomentum,
                         densestThemeName: graphData.densestThemeName,
                         densestThemeCount: graphData.densestThemeCount,
-                        newestDirection: graphData.newestDirection
+                        newestDirection: graphData.newestDirection,
+                        totalIdeas: ideas.count,
+                        totalEdges: graphData.totalEdges
                     )
                     .padding(.horizontal)
                 }
 
-                // ─── Emerging Signals ───
+                // â”€â”€â”€ Emerging Signals â”€â”€â”€
                 EmergingSignalsView(signals: graphData.emergingSignals)
                     .padding(.horizontal)
 
@@ -144,12 +146,13 @@ struct AnalyticsView: View {
         let topMomentum: Float
         let densestThemeName: String?
         let densestThemeCount: Int
-        let newestDirection: String?
+        let newestDirection: String?   // nil = no signal; UI shows context-aware copy
         let emergingSignals: [EmergingSignals.Signal]
+        let totalEdges: Int
+        let isolatedCount: Int         // ideas with zero connections
     }
 
     private func computeGraph() -> GraphSnapshot {
-        // Build edge pairs from SwiftData edges.
         let pairs: [(source: UUID, target: UUID)] = allEdges.compactMap { edge in
             guard let sourceID = edge.sourceIdea?.id else { return nil }
             return (sourceID, edge.targetIdeaID)
@@ -160,28 +163,41 @@ struct AnalyticsView: View {
         let clusters = GraphEngine.findClusters(nodeIDs: nodeIDs, adjacency: adjacency)
         let core = GraphEngine.findCognitiveCore(clusters: clusters, adjacency: adjacency)
 
-        // Gravity
-        let gravity = core?.score ?? 0
+        // Gravity: density * log(n) is near-zero at small n (log(2)=0.69, log(5)=1.6).
+        // Scale up for small corpora so the bar reflects real structural signal.
+        let rawGravity = core?.score ?? 0
+        let n = max(ideas.count, 1)
+        let scaleFactor: Float = n < 50 ? (Float(50) / Float(n)) : 1.0
+        let gravity = min(rawGravity * scaleFactor, 3.0)
 
-        // Emerging signals
+        // Emerging signals -- thresholds already scaled inside EmergingSignals.detect.
         let signals = EmergingSignals.detect(themes: themes, ideas: ideas)
         let topMomentum = signals.first?.momentum ?? 0
-        let newestDirection = signals.first?.themeName
+        // Never fall back to hardcoded "Stabilizing" -- let callers choose context-aware copy.
+        let newestDirection: String? = signals.first?.themeName
 
-        // Densest theme name — pick the most common tag in the core cluster.
+        // Densest theme: try core cluster first, fall back to all ideas.
+        // This ensures something always shows from note 1 onwards.
         var densestThemeName: String?
         var densestThemeCount = 0
-        if let coreIDs = core?.clusterNodeIDs {
-            densestThemeCount = coreIDs.count
+        var tagCounts: [String: Int] = [:]
+
+        if let coreIDs = core?.clusterNodeIDs, !coreIDs.isEmpty {
             let coreIDSet = Set(coreIDs)
-            var tagCounts: [String: Int] = [:]
+            densestThemeCount = coreIDs.count
             for idea in ideas where coreIDSet.contains(idea.id) {
-                for tag in idea.themeTags {
-                    tagCounts[tag, default: 0] += 1
-                }
+                for tag in idea.themeTags { tagCounts[tag, default: 0] += 1 }
             }
-            densestThemeName = tagCounts.max(by: { $0.value < $1.value })?.key
+        } else {
+            for idea in ideas {
+                for tag in idea.themeTags { tagCounts[tag, default: 0] += 1 }
+            }
+            densestThemeCount = ideas.count
         }
+        densestThemeName = tagCounts.max(by: { $0.value < $1.value })?.key
+
+        let connectedIDs = Set(adjacency.keys)
+        let isolatedCount = ideas.filter { !connectedIDs.contains($0.id) }.count
 
         return GraphSnapshot(
             edgePairs: pairs,
@@ -190,7 +206,9 @@ struct AnalyticsView: View {
             densestThemeName: densestThemeName,
             densestThemeCount: densestThemeCount,
             newestDirection: newestDirection,
-            emergingSignals: signals
+            emergingSignals: signals,
+            totalEdges: pairs.count,
+            isolatedCount: isolatedCount
         )
     }
 

@@ -30,6 +30,18 @@ struct AnalyticsView: View {
     @State private var selection = Set<UUID>()
     @State private var synthesisResult: SynthesisEngine.SynthesisResult?
     @State private var unlinkedPairs: [(Idea, Idea, Double)] = []
+    
+    @State private var isScrubbing = false
+    @State private var panOffset: CGSize = .zero
+    @State private var lastPanOffset: CGSize = .zero
+    @State private var showForceInfo = false
+    @State private var selectedForceInfo: ForceInfo?
+
+    struct ForceInfo: Identifiable {
+        let id = UUID()
+        let title: String
+        let description: String
+    }
 
     private var activeIdeas: [Idea] {
         ideas.filter { $0.status != .archived }
@@ -64,8 +76,10 @@ struct AnalyticsView: View {
                     directionalShiftsSection
                         .padding(.bottom, 24)
                     
-                    insightsSection
-                        .padding(.bottom, 40)
+                    if !ideas.isEmpty {
+                        insightsSection
+                            .padding(.bottom, 40)
+                    }
                     
                     Spacer(minLength: 120)
                 }
@@ -86,8 +100,11 @@ struct AnalyticsView: View {
             migrateLegacyIdeas()
         }
         .onChange(of: ideas) { _, _ in refreshLayout() }
-        .onChange(of: timeProgress) { _, newValue in
-            updateTimeFilter(progress: newValue)
+        .onChange(of: timeProgress) { old, new in
+            if abs(new - old) > 0.05 {
+                HapticManager.shared.selectionTick()
+            }
+            updateTimeFilter(progress: new)
         }
         .onChange(of: selection) { _, newSelection in
             updateSynthesis(for: newSelection)
@@ -149,13 +166,51 @@ struct AnalyticsView: View {
                     } onStarTapped: { theme in
                         focusOnTheme(theme)
                     }
+                    .offset(panOffset)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                panOffset = CGSize(
+                                    width: lastPanOffset.width + value.translation.width,
+                                    height: lastPanOffset.height + value.translation.height
+                                )
+                            }
+                            .onEnded { _ in
+                                lastPanOffset = panOffset
+                            }
+                    )
                     
                     // Reset/Clear buttons overlay
-                    if layout.focusNodeIDs != nil || !selection.isEmpty {
-                        graphResetButton.padding(16)
+                    VStack(alignment: .trailing, spacing: 12) {
+                        if layout.focusNodeIDs != nil || !selection.isEmpty || panOffset != .zero {
+                            Button(panOffset != .zero ? "Reset Canvas" : (selection.isEmpty ? "Reset Focus" : "Clear Selection")) {
+                                withAnimation(.spring()) { 
+                                    layout.focusNodeIDs = nil
+                                    selection.removeAll()
+                                    panOffset = .zero
+                                    lastPanOffset = .zero
+                                }
+                                HapticManager.shared.softTap()
+                            }
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Capsule().fill(Pastel.accent.opacity(0.15)))
+                            .foregroundStyle(Pastel.accent)
+                        }
+                        
+                        // Time Badge
+                        if timeProgress < 0.98 {
+                            Text("Snapshot: \(dateString(for: timeProgress))")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Capsule().fill(Pastel.peach.opacity(0.1)))
+                                .foregroundStyle(Pastel.peach)
+                        }
                     }
+                    .padding(16)
                 }
                 .frame(height: 400)
+                .clipShape(RoundedRectangle(cornerRadius: 32))
                 
                 Text("\(activeIdeas.count) active concepts")
                     .font(.system(size: 9, weight: .bold))
@@ -185,18 +240,31 @@ struct AnalyticsView: View {
         VStack(alignment: .leading, spacing: 16) {
             SectionLabel("TIME LENS")
             
-            HStack(spacing: 16) {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Pastel.primaryText.opacity(0.2))
-                
-                Slider(value: $timeProgress, in: 0...1)
+            VStack(spacing: 8) {
+                // Large Date Tooltip (Visible when scrubbing)
+                if isScrubbing {
+                    Text(dateString(for: timeProgress))
+                        .font(.system(size: 24, weight: .bold, design: .serif))
+                        .foregroundStyle(Pastel.accent)
+                        .transition(.scale.combined(with: .opacity))
+                }
+
+                HStack(spacing: 16) {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Pastel.primaryText.opacity(0.2))
+                    
+                    Slider(value: $timeProgress, in: 0...1, onEditingChanged: { scrubbing in
+                        withAnimation(.spring(response: 0.3)) { isScrubbing = scrubbing }
+                    })
                     .tint(Pastel.accent)
-                
-                Text(dateString(for: timeProgress))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Pastel.accent.opacity(0.6))
-                    .frame(width: 80, alignment: .trailing)
+                    
+                    Text(dateString(for: timeProgress))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Pastel.accent.opacity(0.6))
+                        .frame(width: 80, alignment: .trailing)
+                        .opacity(isScrubbing ? 0 : 1)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
@@ -212,16 +280,61 @@ struct AnalyticsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Your Thinking")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Pastel.header) // Increased contrast
+                    .foregroundStyle(Pastel.header)
                 
                 VStack(spacing: 16) {
-                    MetricForceBar(label: "Clarity Core", value: gravity, maxValue: 3.0, tint: Pastel.accent)
-                    MetricForceBar(label: "Inspiration Flow", value: momentum, maxValue: 5.0, tint: Pastel.mint)
+                    MetricForceBar(
+                        label: "Clarity Core", 
+                        value: gravity, 
+                        maxValue: 3.0, 
+                        displayValue: gravityLabel,
+                        tint: Pastel.accent,
+                        info: "Higher when your ideas cluster together around shared themes."
+                    ) {
+                        selectedForceInfo = ForceInfo(title: "Clarity Core", description: "This metric measures the structural cohesion of your thoughts. It increases when you capture multiple ideas that relate to consistent, strong themes, indicating a focused mind.")
+                        showForceInfo = true
+                    }
+
+                    MetricForceBar(
+                        label: "Inspiration Flow", 
+                        value: momentum, 
+                        maxValue: 5.0, 
+                        displayValue: momentumLabel,
+                        tint: Pastel.mint,
+                        info: "Measures the rate of new concepts and evolving connections."
+                    ) {
+                        selectedForceInfo = ForceInfo(title: "Inspiration Flow", description: "This tracks the velocity of your ideation. It builds as you quickly capture varied thoughts and bridge them together, representing an active, expansive creative state.")
+                        showForceInfo = true
+                    }
                 }
             }
             .padding(20)
             .background(RoundedRectangle(cornerRadius: 24).fill(Pastel.primaryText.opacity(0.02)))
             .padding(.horizontal, 16)
+        }
+        .sheet(item: $selectedForceInfo) { info in
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text(info.title)
+                        .font(.system(size: 24, weight: .bold, design: .serif))
+                    Spacer()
+                    Button { selectedForceInfo = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Pastel.primaryText.opacity(0.2))
+                            .font(.title2)
+                    }
+                }
+                
+                Text(info.description)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Pastel.primaryText.opacity(0.7))
+                    .lineSpacing(6)
+                
+                Spacer()
+            }
+            .padding(32)
+            .background(Pastel.radialBackground.ignoresSafeArea())
+            .presentationDetents([.height(300)])
         }
     }
     
@@ -236,16 +349,19 @@ struct AnalyticsView: View {
                         Text("Newest Direction")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Pastel.header.opacity(0.6))
-                        Text(newestDirection ?? "Stabilizing")
+                        Text(newestDirection ?? noDirectionCopy)
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Pastel.primaryText)
+                            .foregroundStyle(newestDirection == nil ? Pastel.primaryText.opacity(0.3) : Pastel.primaryText)
+                            .italic(newestDirection == nil)
                     }
                     Spacer()
-                    Text("Rising")
-                        .font(.system(size: 8, weight: .bold)) // Even smaller
-                        .padding(.horizontal, 6).padding(.vertical, 2) // Tighter padding
-                        .background(Capsule().fill(Pastel.mint.opacity(0.15)))
-                        .foregroundStyle(Pastel.mint)
+                    if newestDirection != nil {
+                        Text("Rising")
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(Pastel.mint.opacity(0.15)))
+                            .foregroundStyle(Pastel.mint)
+                    }
                 }
                 .padding(20)
                 
@@ -279,43 +395,69 @@ struct AnalyticsView: View {
     }
 
     private var insightsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionLabel("COGNITIVE INSIGHTS")
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
-                    // Missed Connections
-                    ForEach(Array(crossPollinations.enumerated()), id: \.offset) { _, insight in
-                        InsightCard(
-                            title: "Missed Connection?",
-                            message: "Your thoughts on '\(insight.themeA)' and '\(insight.themeB)' are isolated. Is there a link?",
-                            icon: "bolt.horizontal.circle.fill",
-                            color: Pastel.sky
-                        ) {
-                            focusOn(ids: insight.clusterA + insight.clusterB)
-                        }
-                    }
+        Group {
+            if !crossPollinations.isEmpty || !fadingInterests.isEmpty {
+                VStack(alignment: .leading, spacing: 16) {
+                    SectionLabel("COGNITIVE INSIGHTS")
                     
-                    // Fading Interests
-                    ForEach(fadingInterests) { signal in
-                        InsightCard(
-                            title: "Fading Interest",
-                            message: "You haven't added to your '\(signal.themeName)' core recently. Revisit?",
-                            icon: "leaf.fill",
-                            color: Pastel.peach
-                        ) {
-                            focusOnTheme(signal.themeName)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            // Missed Connections
+                            ForEach(Array(crossPollinations.enumerated()), id: \.offset) { _, insight in
+                                InsightCard(
+                                    title: "Missed Connection?",
+                                    message: "Your thoughts on '\(insight.themeA)' and '\(insight.themeB)' are isolated. Is there a link?",
+                                    icon: "bolt.horizontal.circle.fill",
+                                    color: Pastel.sky
+                                ) {
+                                    focusOn(ids: insight.clusterA + insight.clusterB)
+                                }
+                            }
+                            
+                            // Fading Interests
+                            ForEach(fadingInterests) { signal in
+                                InsightCard(
+                                    title: "Fading Interest",
+                                    message: "You haven't added to your '\(signal.themeName)' core recently. Revisit?",
+                                    icon: "leaf.fill",
+                                    color: Pastel.peach
+                                ) {
+                                    focusOnTheme(signal.themeName)
+                                }
+                            }
                         }
+                        .padding(.horizontal, 24)
                     }
                 }
-                .padding(.horizontal, 24)
             }
         }
     }
 
-    // Removed metricsSection as its components are integrated into forces/shifts
-
     // MARK: - Logic
+
+    private var gravityLabel: String {
+        if gravity < 0.05 { return "forming" }
+        if gravity < 0.8  { return "building" }
+        if gravity < 2.0  { return "strong" }
+        return "dense"
+    }
+
+    private var momentumLabel: String {
+        if momentum < 0.3 { return "quiet" }
+        if momentum < 1.0 { return "rising" }
+        if momentum < 2.5 { return "surging" }
+        return "peaking"
+    }
+
+    private var noDirectionCopy: String {
+        let count = ideas.count
+        switch count {
+        case 0:       return "No ideas yet"
+        case 1..<5:   return "Capture more to see patterns"
+        case 5..<15:  return "Patterns taking shape…"
+        default:      return "No strong shift right now"
+        }
+    }
 
     private func refreshLayout() {
         let currentIdeas = ideas.filter { $0.status != .archived }
@@ -477,7 +619,7 @@ struct AnalyticsView: View {
                 withAnimation(.spring()) {
                     synthesisResult = SynthesisEngine.synthesize(ideaA, ideaB)
                 }
-                HapticManager.shared.triggerMediumImpact()
+                HapticManager.shared.synthesisReveal()
             }
         } else {
             withAnimation { synthesisResult = nil }
@@ -609,18 +751,28 @@ struct MetricForceBar: View {
     let label: String
     let value: Float
     let maxValue: Float
+    let displayValue: String
     let tint: Color
+    let info: String
+    let onInfoTap: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(label)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Pastel.header.opacity(0.5)) // Standardized contrast
+                    .foregroundStyle(Pastel.header.opacity(0.5))
+                
+                Button(action: onInfoTap) {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Pastel.primaryText.opacity(0.2))
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
-                // Increased contrast on numbers, reduced precision
-                Text("\(Int(value))") 
-                    .font(.system(size: 14, weight: .bold, design: .monospaced))
+                Text(displayValue) 
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Pastel.primaryText)
             }
             
@@ -634,7 +786,7 @@ struct MetricForceBar: View {
                         .frame(width: geo.size.width * CGFloat(min(max(value / maxValue, 0), 1)))
                 }
             }
-            .frame(height: 12) // Thicker bars (approx 15% increase from previous 8-10)
+            .frame(height: 12)
         }
     }
 }

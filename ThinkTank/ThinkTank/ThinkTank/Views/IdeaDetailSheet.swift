@@ -71,25 +71,30 @@ struct IdeaDetailSheet: View {
                             }
                         }
                         
-                        if isAddingTag {
-                            HStack {
-                                TextField("Add new tag...", text: $newTag)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Pastel.primaryText)
-                                    .padding(10)
-                                    .background(RoundedRectangle(cornerRadius: 10).fill(Pastel.primaryText.opacity(0.05)))
-                                    .onSubmit { addTag() }
-                                
-                                Button { addTag() } label: {
-                                    Text("Add").font(.system(size: 12, weight: .bold))
-                                        .padding(.horizontal, 12).padding(.vertical, 8)
-                                        .background(Pastel.accent).foregroundStyle(ThemeManager.shared.currentTheme.id == "neon" || ThemeManager.shared.currentTheme.id == "nordic" || ThemeManager.shared.currentTheme.id == "sunset" ? .black : .white).clipShape(Capsule())
+                        // Tags Entry Area (Stable container to prevent jumps)
+                        ZStack {
+                            if isAddingTag {
+                                HStack {
+                                    TextField("Add new tag...", text: $newTag)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 14) )
+                                        .foregroundStyle(Pastel.primaryText)
+                                        .padding(10)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(Pastel.primaryText.opacity(0.05)))
+                                        .onSubmit { addTag() }
+                                    
+                                    Button { addTag() } label: {
+                                        Text("Add").font(.system(size: 12, weight: .bold))
+                                            .padding(.horizontal, 12).padding(.vertical, 8)
+                                            .background(Pastel.accent).foregroundStyle(ThemeManager.shared.currentTheme.id == "neon" || ThemeManager.shared.currentTheme.id == "nordic" || ThemeManager.shared.currentTheme.id == "sunset" ? .black : .white).clipShape(Capsule())
+                                    }
+                                    .disabled(newTag.isEmpty)
                                 }
-                                .disabled(newTag.isEmpty)
+                                .transition(.move(edge: .top).combined(with: .opacity))
                             }
-                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
+                        .frame(minHeight: isAddingTag ? 44 : 0)
+                        .clipped()
                         
                         FlowLayout(spacing: 8) {
                             ForEach(idea.themeTags, id: \.self) { tag in
@@ -194,7 +199,11 @@ struct IdeaDetailSheet: View {
 
     private func changeStatus(to newStatus: IdeaStatus) {
         withAnimation { idea.status = newStatus }
-        HapticManager.shared.softTap()
+        if newStatus == .archived {
+            HapticManager.shared.archivePulse()
+        } else {
+            HapticManager.shared.softTap()
+        }
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -208,7 +217,7 @@ struct IdeaDetailSheet: View {
                 newTag = ""
                 isAddingTag = false
             }
-            HapticManager.shared.lightTap()
+            HapticManager.shared.tagAdded()
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
@@ -217,7 +226,7 @@ struct IdeaDetailSheet: View {
         withAnimation {
             idea.themeTags.removeAll(where: { $0 == tag })
         }
-        HapticManager.shared.softTap()
+        HapticManager.shared.tagRemoved()
         WidgetCenter.shared.reloadAllTimelines()
     }
 

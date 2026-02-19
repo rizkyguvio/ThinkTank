@@ -11,7 +11,6 @@ struct MainRootView: View {
     @State private var selectedIdea: Idea?
     @State private var processor: RipItProcessor?
     @StateObject private var refEngine = ReferenceEngine()
-    @State private var isRefEngineInitialized = false
 
     // Ritual State
     @State private var ripProgress: CGFloat = 0
@@ -27,6 +26,11 @@ struct MainRootView: View {
     @State private var nextSheetOpacity: Double = 0
     
     @State private var hapticTickCounter: Int = 0
+    @State private var lastRipProgress: CGFloat = 0
+
+    // Onboarding
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+    @State private var showOnboarding = false
 
     private var hasContent: Bool { !text.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -49,7 +53,11 @@ struct MainRootView: View {
                 case 0:
                     captureTabView
                 case 1:
-                    NotesView()
+                    if let proc = processor {
+                        NotesView(processor: proc)
+                    } else {
+                        Color.clear
+                    }
                 case 2:
                     AnalyticsView(tabOpacity: $tabOpacity)
                 default:
@@ -64,6 +72,14 @@ struct MainRootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .opacity(tabOpacity)
                     .padding(.bottom, 8)
+            }
+
+            // Onboarding overlay — shown on first launch only.
+            // Dismissed permanently via "Don't show again" button.
+            if showOnboarding {
+                OnboardingView(isPresented: $showOnboarding)
+                    .zIndex(100)
+                    .transition(.opacity)
             }
         }
         .ignoresSafeArea(.keyboard)
@@ -177,19 +193,42 @@ struct MainRootView: View {
                     // Rip It Button - ALWAYS visible, disabled when empty
                     if !isRipping {
                         Button { performAutoRip() } label: {
-                            Text("Rip It")
-                                .font(.system(size: 18, weight: .bold))
-                                .frame(maxWidth: .infinity).frame(height: 56)
-                                .background(RoundedRectangle(cornerRadius: 20).fill(Pastel.accent))
-                                .foregroundStyle(.white)
+                            Group {
+                                if hasContent {
+                                    Text("Rip It")
+                                        .transition(.scale.combined(with: .opacity))
+                                } else {
+                                    Text("Write something first")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .opacity(0.5)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                            }
+                            .font(.system(size: 18, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background {
+                                RoundedRectangle(cornerRadius: 20)
+                                    .fill(hasContent ? Pastel.accent : Pastel.primaryText.opacity(0.05))
+                                if !hasContent {
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .strokeBorder(Pastel.primaryText.opacity(0.1), lineWidth: 1)
+                                }
+                            }
+                            .foregroundStyle(hasContent ? .white : Pastel.primaryText.opacity(0.3))
                         }
                         .padding(.horizontal, 48)
                         .disabled(!hasContent)
-                        .opacity(hasContent ? 1.0 : 0.3)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hasContent)
                     }
                     
                     Spacer(minLength: isTextFieldFocused ? 10 : 120)
                 }
+            }
+        }
+        .onChange(of: processor?.lastObsessions.count ?? 0) { _, newCount in
+            if newCount > 0 {
+                HapticManager.shared.warningPulse()
             }
         }
         .toolbar {
@@ -202,8 +241,7 @@ struct MainRootView: View {
                                     selectedIdea = idea
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Image(systemName: "doc.text.viewfinder")
-                                        Text(idea.content.prefix(20) + "...")
+                                        Text(idea.content.truncatedWords(amount: 4))
                                     }
                                     .font(.system(size: 11, weight: .medium))
                                     .padding(.horizontal, 10).padding(.vertical, 6)
@@ -222,10 +260,21 @@ struct MainRootView: View {
             }
         }
         .onAppear { 
-            if processor == nil { processor = RipItProcessor(container: modelContext.container) } 
-            if !isRefEngineInitialized {
-                refEngine.setContainer(modelContext.container)
-                isRefEngineInitialized = true
+            if processor == nil { 
+                let proc = RipItProcessor(container: modelContext.container)
+                processor = proc
+                RipItProcessor.shared = proc
+            } 
+            refEngine.setContainer(modelContext.container)
+            
+            // Short delay so the app background renders before the overlay appears,
+            // giving a more intentional "welcome" feel rather than a cold splash.
+            if !hasSeenOnboarding {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    withAnimation(.easeIn(duration: 0.2)) {
+                        showOnboarding = true
+                    }
+                }
             }
         }
         .onChange(of: text) { _, newValue in
@@ -298,11 +347,17 @@ struct MainRootView: View {
             bodyRotation3D = rawProgress * 5
         }
         
+        if ripProgress > 0.6 && lastRipProgress <= 0.6 {
+            HapticManager.shared.lockIn()
+        }
+        
         if Int(ripProgress * 40) > hapticTickCounter {
             hapticTickCounter = Int(ripProgress * 40)
             HapticManager.shared.dragPulse(intensity: 0.3)
             if hapticTickCounter % 6 == 0 { SoundManager.shared.playTension() }
         }
+        
+        lastRipProgress = ripProgress
     }
 
     private func handleManualDragEnd(_ value: DragGesture.Value) {
@@ -529,27 +584,36 @@ struct CustomTabBar: View {
     @Binding var selectedTab: Int
     var body: some View {
         HStack {
-            tabButton(index: 0, icon: "brain")
-            Spacer(); tabButton(index: 1, icon: "tray.full")
-            Spacer(); tabButton(index: 2, icon: "chart.dots.scatter")
+            tabButton(index: 0, icon: "brain", label: "Capture")
+            Spacer()
+            tabButton(index: 1, icon: "tray.full", label: "Notes")
+            Spacer()
+            tabButton(index: 2, icon: "chart.dots.scatter", label: "Map")
         }
         .padding(.horizontal, 40).padding(.vertical, 15)
         .background(Capsule().fill(.ultraThinMaterial).shadow(color: .black.opacity(0.15), radius: 10, y: 10))
         .padding(.horizontal, 30).padding(.bottom, 20)
     }
     
-    private func tabButton(index: Int, icon: String) -> some View {
+    private func tabButton(index: Int, icon: String, label: String) -> some View {
         let isSelected = selectedTab == index
         let iconName = (isSelected && icon != "chart.dots.scatter") ? "\(icon).fill" : icon
         return Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { selectedTab = index }
             HapticManager.shared.softTap()
         } label: {
-            Image(systemName: iconName)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(isSelected ? Pastel.accent : Pastel.primaryText.opacity(0.3))
-                .scaleEffect(isSelected ? 1.2 : 1.0)
-                .frame(width: 44, height: 44)
+            VStack(spacing: 4) {
+                Image(systemName: iconName)
+                    .font(.system(size: 18, weight: .bold))
+                
+                Text(label)
+                    .font(.system(size: 9, weight: .bold))
+                    .kerning(0.5)
+            }
+            .foregroundStyle(isSelected ? Pastel.accent : Pastel.primaryText.opacity(0.3))
+            .scaleEffect(isSelected ? 1.1 : 1.0)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
         }
     }
 }

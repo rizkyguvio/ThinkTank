@@ -23,8 +23,15 @@ nonisolated struct LayoutNode: Identifiable, Sendable {
 
 @MainActor
 final class ForceDirectedLayout: ObservableObject {
-    @Published var nodes: [UUID: LayoutNode] = [:]
-    @Published var isSettled: Bool = false
+    var nodes: [UUID: LayoutNode] = [:]
+    @Published var isSettled: Bool = false {
+        didSet {
+            if !isSettled { startSimulation() }
+        }
+    }
+    
+    private var displayLink: CADisplayLink?
+    private var tickCounter: Int = 0
     
     // New: Filter states for Narrative view
     @Published var timeCutoff: Date = .distantFuture
@@ -175,8 +182,36 @@ final class ForceDirectedLayout: ObservableObject {
             totalKineticEnergy += node.velocity.x * node.velocity.x + node.velocity.y * node.velocity.y
             nodes[id] = node
         }
-        if totalKineticEnergy < settleThreshold { isSettled = true }
+        if totalKineticEnergy < settleThreshold { 
+            stopSimulation()
+        }
     }
+    
+    // MARK: - Simulation Loop
+    
+    func startSimulation() {
+        guard displayLink == nil else { return }
+        displayLink = CADisplayLink(target: self, selector: #selector(physicsLoop(_:)))
+        displayLink?.add(to: .main, forMode: .common)
+    }
+
+    func stopSimulation() {
+        displayLink?.invalidate()
+        displayLink = nil
+        isSettled = true
+        objectWillChange.send() // Ensure UI updates on final position
+    }
+
+    @objc private func physicsLoop(_ link: CADisplayLink) {
+        tick()
+        tickCounter += 1
+        
+        // Decouple physics from render: UI only needs ~20fps to look smooth during drag
+        if tickCounter % 3 == 0 || isSettled {
+            objectWillChange.send()
+        }
+    }
+
 
     private var celestialCache: [String: CGPoint] = [:]
     private var lastCanvasSize: CGSize = .zero

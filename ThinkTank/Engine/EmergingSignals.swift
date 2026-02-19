@@ -3,16 +3,16 @@ import SwiftData
 
 /// Detects themes with rising momentum over a sliding time window.
 ///
-/// Momentum formula (from design §3):
+/// Momentum formula (from design Â§3):
 /// ```
 /// window_recent  = ideas tagged T in last 7 days
-/// window_prior   = ideas tagged T in days 8–14
+/// window_prior   = ideas tagged T in days 8â€“14
 /// baseline       = total ideas tagged T / (total_weeks)
-/// momentum(T)    = (window_recent − window_prior) / max(baseline, 1)
+/// momentum(T)    = (window_recent âˆ’ window_prior) / max(baseline, 1)
 /// ```
 ///
 /// A theme qualifies as "emerging" when:
-///   momentum ≥ 1.5  AND  window_recent ≥ 3  AND  totalFrequency ≥ 5
+///   momentum â‰¥ 1.5  AND  window_recent â‰¥ 3  AND  totalFrequency â‰¥ 5
 enum EmergingSignals {
 
     /// A single emerging signal ready for display.
@@ -23,6 +23,8 @@ enum EmergingSignals {
     }
 
     /// Detect up to 3 emerging themes.
+    ///
+    /// Thresholds scale with corpus size so small datasets (~15 ideas) produce real signals.
     ///
     /// - Parameters:
     ///   - themes: All persisted `Theme` objects.
@@ -35,6 +37,25 @@ enum EmergingSignals {
         now: Date = .now
     ) -> [Signal] {
         let calendar = Calendar.current
+        let totalIdeas = ideas.count
+
+        // Scale minimum requirements based on how many notes exist.
+        // Think of this like adjusting a microphone's sensitivity —
+        // in a quiet room you turn it up; in a concert hall you turn it down.
+        let minFrequency: Int
+        let minRecent: Int
+        let momentumThreshold: Float
+        switch totalIdeas {
+        case ..<10:
+            minFrequency = 1; minRecent = 1; momentumThreshold = 0.1
+        case 10..<25:
+            minFrequency = 2; minRecent = 1; momentumThreshold = 0.3
+        case 25..<50:
+            minFrequency = 3; minRecent = 2; momentumThreshold = 0.8
+        default:
+            // Original strict gates only kick in at 50+ ideas
+            minFrequency = 5; minRecent = 3; momentumThreshold = 1.5
+        }
 
         let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: now)!
         let fourteenDaysAgo = calendar.date(byAdding: .day, value: -14, to: now)!
@@ -54,8 +75,8 @@ enum EmergingSignals {
         var signals: [Signal] = []
 
         for theme in themes {
-            // Noise gate: minimum corpus presence.
-            guard theme.totalFrequency >= 5 else { continue }
+            // Noise gate: minimum corpus presence (scaled with corpus size).
+            guard theme.totalFrequency >= minFrequency else { continue }
 
             // Cooldown: don't resurface within 14 days.
             if let lastShown = theme.lastEmergingDate, lastShown >= cooldownCutoff {
@@ -71,8 +92,7 @@ enum EmergingSignals {
             let baseline = max(Float(theme.totalFrequency) / totalWeeks, 1)
             let momentum = (windowRecent - windowPrior) / baseline
 
-            // Threshold check.
-            guard momentum >= 1.5, windowRecent >= 3 else { continue }
+            guard momentum >= momentumThreshold, Int(windowRecent) >= minRecent else { continue }
 
             signals.append(Signal(themeName: theme.name, momentum: momentum))
         }

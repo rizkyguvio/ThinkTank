@@ -15,6 +15,7 @@ import WidgetKit
 /// 6. Notify main actor to refresh analytics
 @MainActor
 final class RipItProcessor: ObservableObject {
+    static var shared: RipItProcessor!
 
     private let container: ModelContainer
 
@@ -26,170 +27,183 @@ final class RipItProcessor: ObservableObject {
     }
 
     /// Process a newly captured idea.
-    ///
-    /// The idea is inserted and saved immediately (UI remains responsive).
-    /// All heavy computation runs on a background task.
     func process(content: String, in context: ModelContext) {
         let idea = Idea(content: content)
         context.insert(idea)
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            print("❌ [RipItProcessor] Failed to save initial idea to context: \(error)")
+        }
 
         isProcessing = true
 
-        Task.detached(priority: .utility) { [container] in
+        Task.detached(priority: .utility) { [weak self, container] in
+            guard let self = self else { return }
             let bgContext = ModelContext(container)
-
-            // 1. Semantic Preprocessing & Lemmatization.
-            let preprocessedContent = SemanticProcessor.preprocess(content)
-            let keywords = KeywordExtractor.extract(from: preprocessedContent)
-            let embedding = SemanticProcessor.generateEmbedding(for: content)
-
-            // 2. Build corpus document-frequency map using batch fetch.
-            // Previously: N individual FetchDescriptor queries (one per keyword).
-            // Now: Single fetch of ALL themes, then dictionary lookup.
-            let totalIdeasCount = (try? bgContext.fetchCount(FetchDescriptor<Idea>())) ?? 0
             
-            let allThemeDescriptor = FetchDescriptor<Theme>()
-            let allThemes = (try? bgContext.fetch(allThemeDescriptor)) ?? []
-            let themeMap: [String: Theme] = Dictionary(
-                allThemes.map { ($0.name, $0) },
-                uniquingKeysWith: { first, _ in first }
-            )
+            // Re-fetch aggregate data for current corpus state
+            let meta = await self.fetchPipelineMetadata(in: bgContext)
             
-            var docFrequency: [String: Int] = [:]
-            docFrequency.reserveCapacity(keywords.count)
-            for kw in keywords {
-                docFrequency[kw] = themeMap[kw]?.totalFrequency ?? 0
-            }
-
-            // 3. Compute Hybrid Vectors.
-            let lexicalVector = SimilarityEngine.tfidfVector(
-                keywords: keywords,
-                corpusDocumentFrequency: docFrequency,
-                totalDocuments: totalIdeasCount + 1
-            )
-
-            // 4. Assign theme tags (top-3 by weight) + Semantic Intents.
-            var rawTags = lexicalVector
-                .sorted { $0.value > $1.value }
-                .prefix(3)
-                .map(\.key)
+            // Run pipeline for this single idea
+            await self.runPipeline(for: idea.id, in: bgContext, meta: meta)
             
-            // "Elevate" the idea by detecting high-level conceptual intents.
-            if let emb = embedding {
-                let intents = IntentEngine.detectIntents(for: emb)
-                for intent in intents {
-                    // Case-insensitive check to avoid "grocery" + "Grocery"
-                    if !rawTags.contains(where: { $0.localizedCaseInsensitiveCompare(intent) == .orderedSame }) {
-                        rawTags.insert(intent, at: 0) // Prioritize intents at the start
-                    }
-                }
-            }
-
-            // Normalize all tags to Title Case (e.g. "milk" -> "Milk")
-            var uniqueTags: [String] = []
-            var seen = Set<String>()
-            for t in rawTags {
-                let normalized = t.localizedCapitalized
-                if seen.insert(normalized).inserted {
-                    uniqueTags.append(normalized)
-                }
-            }
-
-            // 5. Locate the idea in the background context and update it.
-            let ideaID = idea.id
-            let ideaDescriptor = FetchDescriptor<Idea>(
-                predicate: #Predicate { $0.id == ideaID }
-            )
-            guard let bgIdea = (try? bgContext.fetch(ideaDescriptor))?.first else { return }
-
-            bgIdea.extractedKeywords = keywords
-            bgIdea.encodeVector(lexicalVector)
-            bgIdea.embedding = embedding
-            bgIdea.themeTags = Array(uniqueTags.prefix(5)) // Cap at 5 total curated tags
-
-            // 6. Update Theme models (batch via themeMap).
-            // Previously: N individual FetchDescriptor queries.
-            // Now: O(1) dictionary lookups using the already-fetched themeMap.
-            for tag in uniqueTags {
-                if let theme = themeMap[tag] {
-                    theme.totalFrequency += 1
-                    theme.weeklyFrequency += 1
-                } else {
-                    let theme = Theme(name: tag)
-                    theme.totalFrequency = 1
-                    theme.weeklyFrequency = 1
-                    bgContext.insert(theme)
-                }
-            }
-
-            // 7. Compute Hybrid Edges (Lexical + Semantic).
-            let recentDescriptor = FetchDescriptor<Idea>(
-                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-            )
-            let recentIdeas = (try? bgContext.fetch(recentDescriptor))?.prefix(200) ?? []
-
-            // Build candidate arrays in a single pass instead of two separate compactMap iterations
-            var lexicalCandidates: [(id: UUID, vector: [String: Float])] = []
-            var semanticCandidates: [(id: UUID, embedding: [Double])] = []
-            lexicalCandidates.reserveCapacity(recentIdeas.count)
-            semanticCandidates.reserveCapacity(recentIdeas.count)
-            
-            for candidate in recentIdeas {
-                guard candidate.id != ideaID else { continue }
-                lexicalCandidates.append((candidate.id, candidate.decodedVector()))
-                if let emb = candidate.embedding {
-                    semanticCandidates.append((candidate.id, emb))
-                }
-            }
-
-            let lexicalEdges = SimilarityEngine.computeLexicalEdges(
-                newVector: lexicalVector,
-                candidates: lexicalCandidates
-            )
-
-            var semanticEdges: [(targetID: UUID, score: Float)] = []
-            if let emb = embedding {
-                semanticEdges = SimilarityEngine.computeSemanticEdges(
-                    newEmbedding: emb,
-                    candidates: semanticCandidates
-                )
-            }
-
-            // Combine and Dedup Edges
-            var edgeMap: [UUID: Float] = [:]
-            edgeMap.reserveCapacity(lexicalEdges.count + semanticEdges.count)
-            for e in lexicalEdges { edgeMap[e.targetID] = e.score }
-            for e in semanticEdges { edgeMap[e.targetID] = max(edgeMap[e.targetID] ?? 0, e.score) }
-
-            for (id, score) in edgeMap {
-                let graphEdge = GraphEdge(source: bgIdea, targetID: id, score: score)
-                bgContext.insert(graphEdge)
-            }
-
-            try? bgContext.save()
-            WidgetCenter.shared.reloadAllTimelines()
-
-            // 8. Detect Obsessions
-            let allDescriptor = FetchDescriptor<Idea>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
-            let allRecent = (try? bgContext.fetch(allDescriptor)) ?? []
-            let obsessions = ObsessionEngine.detectObsessions(in: allRecent)
-
-            // 9. Notify main thread.
             await MainActor.run {
-                self.lastObsessions = obsessions
-                NotificationCenter.default.post(
-                    name: .graphDidUpdate,
-                    object: nil
-                )
+                self.isProcessing = false
+                NotificationCenter.default.post(name: .graphDidUpdate, object: nil)
+            }
+        }
+    }
+
+    /// Full migration pass: Reprocesses every note in the library.
+    /// Re-extracts keywords, regenerates embeddings, and rebuilds the graph.
+    func reprocessAll() {
+        isProcessing = true
+        
+        Task.detached(priority: .utility) { [weak self, container] in
+            guard let self = self else { return }
+            let bgContext = ModelContext(container)
+            
+            do {
+                // 1. Clear established analytical data
+                try bgContext.delete(model: GraphEdge.self)
+                try bgContext.delete(model: Theme.self)
+                try bgContext.save()
+                
+                // 2. Fetch all ideas
+                let allIdeas = try bgContext.fetch(FetchDescriptor<Idea>(sortBy: [SortDescriptor(\.createdAt)]))
+                let totalCount = allIdeas.count
+                
+                // 3. Pre-load metadata for the pipeline
+                let meta = await self.fetchPipelineMetadata(in: bgContext)
+                
+                // 4. Batch re-run pipeline
+                for idea in allIdeas {
+                    await self.runPipeline(for: idea.id, in: bgContext, meta: meta)
+                }
+                
+                try bgContext.save()
+                WidgetCenter.shared.reloadAllTimelines()
+                
+                // Final obsession sweep
+                let detectedObsessions = ObsessionEngine.detectObsessions(in: allIdeas)
+                
+                await MainActor.run {
+                    self.lastObsessions = detectedObsessions
+                    self.isProcessing = false
+                    NotificationCenter.default.post(name: .graphDidUpdate, object: nil)
+                }
+            } catch {
+                print("❌ [RipItProcessor] Migration failed: \(error)")
+                await MainActor.run { self.isProcessing = false }
+            }
+        }
+    }
+
+    // MARK: - Pipeline Internals
+
+    private struct PipelineMetadata {
+        let totalIdeasCount: Int
+        let themeMap: [String: Theme]
+    }
+
+    private func fetchPipelineMetadata(in context: ModelContext) async -> PipelineMetadata {
+        do {
+            let total = try context.fetchCount(FetchDescriptor<Idea>())
+            let themes = try context.fetch(FetchDescriptor<Theme>())
+            let map = Dictionary(themes.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+            return PipelineMetadata(totalIdeasCount: total, themeMap: map)
+        } catch {
+            return PipelineMetadata(totalIdeasCount: 0, themeMap: [:])
+        }
+    }
+
+    private func runPipeline(for ideaID: UUID, in bgContext: ModelContext, meta: PipelineMetadata) async {
+        let ideaDescriptor = FetchDescriptor<Idea>(predicate: #Predicate { $0.id == ideaID })
+        guard let bgIdea = (try? bgContext.fetch(ideaDescriptor))?.first else { return }
+        
+        let content = bgIdea.content
+        let preprocessedContent = SemanticProcessor.preprocess(content)
+        let keywords = KeywordExtractor.extract(from: preprocessedContent)
+        let embedding = SemanticProcessor.generateEmbedding(for: content)
+
+        // Lexical Vector
+        var docFrequency: [String: Int] = [:]
+        for kw in keywords {
+            docFrequency[kw] = meta.themeMap[kw]?.totalFrequency ?? 0
+        }
+        
+        let lexicalVector = SimilarityEngine.tfidfVector(
+            keywords: keywords,
+            corpusDocumentFrequency: docFrequency,
+            totalDocuments: meta.totalIdeasCount + 1
+        )
+
+        // Tags & Intents
+        var rawTags = lexicalVector.sorted { $0.value > $1.value }.prefix(3).map(\.key)
+        if let emb = embedding {
+            let intents = IntentEngine.detectIntents(for: emb)
+            for intent in intents {
+                if !rawTags.contains(where: { $0.localizedCaseInsensitiveCompare(intent) == .orderedSame }) {
+                    rawTags.insert(intent, at: 0)
+                }
             }
         }
 
-        // Reset processing flag after a short delay (processing is fast
-        // for typical idea lengths; this avoids flicker).
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            isProcessing = false
+        var uniqueTags: [String] = []
+        var seen = Set<String>()
+        for t in rawTags {
+            let normalized = t.localizedCapitalized
+            if seen.insert(normalized).inserted { uniqueTags.append(normalized) }
+        }
+
+        // Apply metadata updates
+        bgIdea.extractedKeywords = keywords
+        bgIdea.encodeVector(lexicalVector)
+        bgIdea.embedding = embedding
+        bgIdea.themeTags = Array(uniqueTags.prefix(5))
+
+        // Update Theme frequencies
+        for tag in uniqueTags {
+            if let theme = meta.themeMap[tag] {
+                theme.totalFrequency += 1
+                theme.weeklyFrequency += 1
+            } else {
+                let theme = Theme(name: tag)
+                theme.totalFrequency = 1
+                theme.weeklyFrequency = 1
+                bgContext.insert(theme)
+            }
+        }
+
+        // Compute Edges to recent cluster
+        let recentDescriptor = FetchDescriptor<Idea>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        let recentIdeas = (try? bgContext.fetch(recentDescriptor))?.prefix(200) ?? []
+
+        var lexicalCandidates: [(id: UUID, vector: [String: Float])] = []
+        var semanticCandidates: [(id: UUID, embedding: [Double])] = []
+        
+        for candidate in recentIdeas {
+            if candidate.id == ideaID { continue }
+            lexicalCandidates.append((candidate.id, candidate.decodedVector()))
+            if let emb = candidate.embedding {
+                semanticCandidates.append((candidate.id, emb))
+            }
+        }
+
+        let lexicalEdges = SimilarityEngine.computeLexicalEdges(newVector: lexicalVector, candidates: lexicalCandidates)
+        var semanticEdges: [(targetID: UUID, score: Float)] = []
+        if let emb = embedding {
+            semanticEdges = SimilarityEngine.computeSemanticEdges(newEmbedding: emb, candidates: semanticCandidates)
+        }
+
+        var edgeMap: [UUID: Float] = [:]
+        for e in lexicalEdges { edgeMap[e.targetID] = e.score }
+        for e in semanticEdges { edgeMap[e.targetID] = max(edgeMap[e.targetID] ?? 0, e.score) }
+
+        for (id, score) in edgeMap {
+            let graphEdge = GraphEdge(source: bgIdea, targetID: id, score: score)
+            bgContext.insert(graphEdge)
         }
     }
 }

@@ -2,15 +2,19 @@ import SwiftUI
 
 /// Displays the North Star Metric: Structural Gravity + Directional Momentum.
 ///
-/// Presented as two quiet ratio bars with descriptive labels.
-/// This is NOT a score. It is a current-state indicator.
+/// Scales its messaging with corpus size — early users see something useful
+/// rather than two empty bars and an unexplained "Stabilizing" label.
 struct NorthStarMetricView: View {
 
-    let gravity: Float          // density(core) × log(|core|), range ~[0, 3]
+    let gravity: Float          // density(core) × log(|core|), scaled to ~[0, 3]
     let momentum: Float         // max momentum across emerging themes
     let densestThemeName: String?
     let densestThemeCount: Int
     let newestDirection: String?
+
+    // Optional context — passed in so the view can show corpus-aware copy
+    var totalIdeas: Int = 0
+    var totalEdges: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -18,50 +22,98 @@ struct NorthStarMetricView: View {
                 .font(.headline)
                 .foregroundStyle(.primary)
 
-            // Gravity bar
+            // Clarity Core bar
             MetricBar(
-                label: "Gravity",
+                label: "Clarity Core",
                 value: normalised(gravity, maxExpected: 3.0),
-                displayValue: String(format: "%.2f", gravity),
+                displayValue: gravityLabel,
                 tint: .secondary
             )
 
-            // Momentum bar
+            // Inspiration Flow bar
             MetricBar(
-                label: "Momentum",
+                label: "Inspiration Flow",
                 value: normalised(momentum, maxExpected: 5.0),
-                displayValue: String(format: "%.2f", momentum),
+                displayValue: momentumLabel,
                 tint: .accentColor.opacity(0.5)
             )
 
-            // Descriptive labels
+            // Most active theme — always shows something once any ideas exist
             if let theme = densestThemeName {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Your densest area:")
+                    Text("Most active theme")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("\(theme) (\(densestThemeCount) ideas)")
+                    Text("\(theme) · \(densestThemeCount) idea\(densestThemeCount == 1 ? "" : "s")")
                         .font(.callout)
                         .foregroundStyle(.primary)
                 }
             }
 
-            if let direction = newestDirection {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Newest direction:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            // Directional shift — honest nil handling instead of "Stabilizing"
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Directional shift")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let direction = newestDirection {
                     Text(direction)
                         .font(.callout)
                         .foregroundStyle(.primary)
+                } else {
+                    Text(noDirectionCopy)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .italic()
                 }
+            }
+
+            // Connectivity hint — only shown when no edges have formed yet
+            if totalEdges == 0 && totalIdeas >= 3 {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "info.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 1)
+                    Text("Connections form when ideas share themes. Keep capturing — your graph will light up soon.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 2)
             }
         }
         .padding()
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    /// Normalise a value into [0, 1] for bar display, capping at an expected max.
+    // MARK: - Computed labels
+
+    /// Human-readable Clarity Core label — never shows a raw "0.00"
+    private var gravityLabel: String {
+        if gravity < 0.05 { return "forming" }
+        if gravity < 0.8  { return "building" }
+        if gravity < 2.0  { return "strong" }
+        return "dense"
+    }
+
+    /// Human-readable Inspiration Flow label
+    private var momentumLabel: String {
+        if momentum < 0.3 { return "quiet" }
+        if momentum < 1.0 { return "rising" }
+        if momentum < 2.5 { return "surging" }
+        return "peaking"
+    }
+
+    /// Context-aware copy when no directional signal exists
+    private var noDirectionCopy: String {
+        switch totalIdeas {
+        case 0:       return "No ideas yet"
+        case 1..<5:   return "Capture a few more to see patterns"
+        case 5..<15:  return "Patterns taking shape…"
+        default:      return "No strong shift right now"
+        }
+    }
+
     private func normalised(_ value: Float, maxExpected: Float) -> Float {
         min(max(value / maxExpected, 0), 1)
     }
@@ -81,7 +133,7 @@ private struct MetricBar: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
+                .frame(width: 90, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -91,7 +143,8 @@ private struct MetricBar: View {
 
                     RoundedRectangle(cornerRadius: 3)
                         .fill(tint)
-                        .frame(width: geo.size.width * CGFloat(value), height: 6)
+                        // Minimum visible width of 4pt so the bar is never invisible at tiny values
+                        .frame(width: max(geo.size.width * CGFloat(value), value > 0 ? 4 : 0), height: 6)
                         .animation(.easeInOut(duration: 0.6), value: value)
                 }
             }
@@ -100,8 +153,7 @@ private struct MetricBar: View {
             Text(displayValue)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 48, alignment: .trailing)
         }
     }
 }
@@ -109,12 +161,28 @@ private struct MetricBar: View {
 // MARK: - Preview
 
 #Preview {
-    NorthStarMetricView(
-        gravity: 0.72,
-        momentum: 0.31,
-        densestThemeName: "distributed systems",
-        densestThemeCount: 8,
-        newestDirection: "error handling"
-    )
+    VStack(spacing: 16) {
+        // Small corpus — what user sees at 15 notes
+        NorthStarMetricView(
+            gravity: 0.04,
+            momentum: 0.0,
+            densestThemeName: "Creative",
+            densestThemeCount: 4,
+            newestDirection: nil,
+            totalIdeas: 15,
+            totalEdges: 0
+        )
+
+        // Mature corpus
+        NorthStarMetricView(
+            gravity: 1.4,
+            momentum: 2.1,
+            densestThemeName: "distributed systems",
+            densestThemeCount: 8,
+            newestDirection: "error handling",
+            totalIdeas: 60,
+            totalEdges: 34
+        )
+    }
     .padding()
 }

@@ -132,6 +132,7 @@ final class ThemeManager {
         didSet {
             sharedDefaults?.set(currentTheme.id, forKey: storageKey)
             updateAppIcon()
+            HapticManager.shared.heavyImpact()
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
@@ -171,22 +172,10 @@ final class ThemeManager {
             
             // Refined implementation: Bypasses the intrusive system alert for a more premium experience.
             if UIApplication.shared.alternateIconName != iconName {
-                // We use dynamic dispatch to access a more discreet system call that performs the update silently.
-                if UIApplication.shared.responds(to: #selector(getter: UIApplication.alternateIconName)) {
-                    let selector = NSSelectorFromString("_setAlternateIconName:completionHandler:")
-                    let method = UIApplication.shared.method(for: selector)
-                    
-                    typealias MethodType = @convention(c) (NSObject, Selector, NSString?, @escaping (Error?) -> Void) -> Void
-                    let function = unsafeBitCast(method, to: MethodType.self)
-                    
-                    function(UIApplication.shared, selector, iconName as NSString?, { error in
-                        if let error = error {
-                            print("Silent icon update failed: \(error.localizedDescription)")
-                        }
-                    })
-                } else {
-                    // Fallback to standard method if the discreet call is unavailable
-                    UIApplication.shared.setAlternateIconName(iconName) { _ in }
+                UIApplication.shared.setAlternateIconName(iconName) { error in
+                    if let error = error {
+                        print("Icon update failed: \(error.localizedDescription)")
+                    }
                 }
             }
         }

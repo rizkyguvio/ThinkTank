@@ -7,7 +7,8 @@ import Foundation
 nonisolated enum SimilarityEngine {
 
     /// The minimum Weighted Jaccard score for two ideas to be lexically connected.
-    static let lexicalThreshold: Float = 0.25
+    /// Lowered to 0.12 to allow connections to form early in smaller libraries.
+    static let lexicalThreshold: Float = 0.12
 
     /// The minimum Cosine Similarity score for a semantic bridge.
     static let semanticThreshold: Double = 0.72

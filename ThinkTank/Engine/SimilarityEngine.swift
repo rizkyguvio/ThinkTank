@@ -7,7 +7,12 @@ import Foundation
 enum SimilarityEngine {
 
     /// The minimum Weighted Jaccard score for two ideas to be connected.
-    static let edgeThreshold: Float = 0.25
+    ///
+    /// Set to 0.12 (down from 0.25) so that edges form at small corpus sizes (~15 ideas).
+    /// At 15 notes, TF-IDF vectors are sparse and Jaccard scores cluster near zero —
+    /// a 0.25 threshold was too aggressive. 0.12 still rejects noise while allowing
+    /// real topical overlap to register.
+    static let edgeThreshold: Float = 0.12
 
     // MARK: - TF-IDF
 
@@ -52,9 +57,9 @@ enum SimilarityEngine {
     ///
     /// ```
     /// similarity(A, B) =
-    ///     Σ min(w_A(k), w_B(k))  for k ∈ keys_A ∪ keys_B
-    ///     ───────────────────────────────────────────────
-    ///     Σ max(w_A(k), w_B(k))  for k ∈ keys_A ∪ keys_B
+    ///     Î£ min(w_A(k), w_B(k))  for k âˆˆ keys_A âˆª keys_B
+    ///     â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ///     Î£ max(w_A(k), w_B(k))  for k âˆˆ keys_A âˆª keys_B
     /// ```
     ///
     /// Range: [0, 1]. Returns 0 if both vectors are empty.
