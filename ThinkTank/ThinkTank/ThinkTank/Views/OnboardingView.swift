@@ -40,6 +40,13 @@ private let pages: [OnboardingPage] = [
         subtitle: "In your Notes, swipe a card right to resolve it. Swipe left to delete. Your ideas have a lifecycle.",
         accentLine: "Ideas evolve. So do you."
     ),
+    OnboardingPage(
+        icon: "bell.and.time.fill",
+        symbolEffect: true,
+        title: "Time-Traveling\nThoughts.",
+        subtitle: "Write \"tomorrow\" or \"Friday at 5pm\" in a note. Think Tank will naturally detect it and resurface the idea when the time is right.",
+        accentLine: "Never forget a spark."
+    ),
 ]
 
 // MARK: - Main Onboarding View
@@ -214,9 +221,17 @@ struct OnboardingView: View {
                 hasSeenOnboarding = true
                 dismiss()
             } label: {
-                Text("Don't show again")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Pastel.primaryText.opacity(0.3))
+                HStack(spacing: 4) {
+                    Image(systemName: "eye.slash.fill")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Don't show again")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundStyle(Pastel.primaryText.opacity(0.6))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Pastel.primaryText.opacity(0.06))
+                .clipShape(Capsule())
             }
             .buttonStyle(.plain)
 
@@ -230,6 +245,7 @@ struct OnboardingView: View {
                     }
                     HapticManager.shared.softTap()
                 } else {
+                    NotificationEngine.shared.requestAuthorization()
                     dismiss()
                     HapticManager.shared.ripItSuccess()
                 }

@@ -269,7 +269,8 @@ struct MainRootView: View {
             
             // Short delay so the app background renders before the overlay appears,
             // giving a more intentional "welcome" feel rather than a cold splash.
-            if !hasSeenOnboarding {
+            if !hasSeenOnboarding && !SessionState.hasShownOnboardingThisSession {
+                SessionState.hasShownOnboardingThisSession = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     withAnimation(.easeIn(duration: 0.2)) {
                         showOnboarding = true
@@ -284,6 +285,11 @@ struct MainRootView: View {
             IdeaDetailSheet(idea: idea, connectedIdeas: []) { _ in }
         }
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isTextFieldFocused)
+    }
+
+    // MARK: - Session State
+    private struct SessionState {
+        static var hasShownOnboardingThisSession = false
     }
 
     // MARK: - Paper Body (extracted for clarity)

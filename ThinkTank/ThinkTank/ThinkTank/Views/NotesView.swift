@@ -483,6 +483,13 @@ struct NoteCard: View {
                             .foregroundStyle(Pastel.accent)
                             .opacity(0.8)
                     }
+                    
+                    if idea.hasReminder {
+                        Image(systemName: "bell.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(Pastel.sky)
+                            .opacity(0.8)
+                    }
                 }
                 .font(.system(size: 11))
                 .foregroundStyle(Pastel.primaryText.opacity(0.4))
@@ -519,25 +526,21 @@ struct NoteCard: View {
                 Button { onStatusChange(status) } label: { Label(status.label, systemImage: status.icon) }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: idea.status.icon)
-                    .font(.system(size: 10, weight: .bold))
-                
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 6, weight: .black))
-                    .opacity(0.5)
-            }
-            .foregroundStyle(statusColor)
-            .padding(10)
-            .background(statusColor.opacity(0.12))
-            .clipShape(Circle())
-            .scaleEffect(isBadgePressed ? 0.88 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isBadgePressed)
+            Image(systemName: idea.status.icon)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(statusColor)
+                .padding(10)
+                .background(statusColor.opacity(0.12))
+                .clipShape(Circle())
+                .contentShape(Circle())
+                .scaleEffect(isBadgePressed ? 0.85 : 1.0)
+                .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isBadgePressed)
         }
         .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
             isBadgePressed = pressing
+            if pressing { HapticManager.shared.softTap() }
         }, perform: {})
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(.plain)
     }
 
     private var tagsView: some View {

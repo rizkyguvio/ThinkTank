@@ -29,6 +29,12 @@ final class RipItProcessor: ObservableObject {
     /// Process a newly captured idea.
     func process(content: String, in context: ModelContext) {
         let idea = Idea(content: content)
+        
+        if let futureDate = DateExtractor.extractFutureDate(from: content) {
+            idea.hasReminder = true
+            NotificationEngine.shared.scheduleNotification(for: idea.id, contentText: content, at: futureDate)
+        }
+        
         context.insert(idea)
         do {
             try context.save()
@@ -212,4 +218,65 @@ final class RipItProcessor: ObservableObject {
 
 extension Notification.Name {
     nonisolated static let graphDidUpdate = Notification.Name("ThinkTank.graphDidUpdate")
+}
+
+import UserNotifications
+
+public final class NotificationEngine {
+    public static let shared = NotificationEngine()
+    
+    private init() {}
+    
+    public func requestAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("Error requesting notification auth: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    public func scheduleNotification(for ideaId: UUID, contentText: String, at date: Date) {
+        let content = UNMutableNotificationContent()
+        content.title = "Think Tank Reminder"
+        content.body = contentText
+        content.sound = .default
+        
+        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        
+        let request = UNNotificationRequest(identifier: ideaId.uuidString, content: content, trigger: trigger)
+        
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Error scheduling notification: \(error.localizedDescription)")
+            } else {
+                print("Successfully scheduled notification for idea \(ideaId) at \(date)")
+            }
+        }
+    }
+    
+    public func cancelNotification(for ideaID: UUID) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [ideaID.uuidString])
+    }
+}
+
+public struct DateExtractor {
+    /// Extracts the first future date found in the given text.
+    public static func extractFutureDate(from text: String) -> Date? {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue) else {
+            return nil
+        }
+        
+        let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: text.utf16.count))
+        let now = Date()
+        
+        for match in matches {
+            if let date = match.date, date > now {
+                // Return the first future date found
+                return date
+            }
+        }
+        
+        return nil
+    }
 }

@@ -44,6 +44,9 @@ final class Idea {
 
     @Relationship(deleteRule: .cascade, inverse: \GraphEdge.sourceIdea)
     var outgoingEdges: [GraphEdge]
+    
+    /// Tracks if a future date was detected and a notification was scheduled.
+    var hasReminder: Bool = false
 
     /// Computed status property.
     var status: IdeaStatus {
@@ -61,6 +64,7 @@ final class Idea {
         self.similarityVector = Data()
         self.embedding = nil
         self.outgoingEdges = []
+        self.hasReminder = false
     }
 
     // MARK: - Vector helpers
