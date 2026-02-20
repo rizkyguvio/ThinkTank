@@ -455,7 +455,8 @@ struct NoteCard: View {
     let onStatusChange: (IdeaStatus) -> Void
     let onDelete: () -> Void
     
-    @State private var isPressed = false
+    @State private var isBadgePressed = false
+    @State private var isCardPressed = false
 
     var body: some View {
         // Pure visual card - swipe actions handled by parent List
@@ -492,12 +493,24 @@ struct NoteCard: View {
         }
         .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Pastel.primaryText.opacity(0.04))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(statusColor.opacity(0.15), lineWidth: 1))
+                .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 6)
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(statusColor.opacity(0.15), lineWidth: 1))
         )
         .contentShape(Rectangle())
+        .scaleEffect(isCardPressed ? 0.96 : 1.0)
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isCardPressed)
         .onTapGesture { onTap() }
+        .onLongPressGesture(minimumDuration: 0.1, pressing: { pressing in 
+            isCardPressed = pressing 
+        }, perform: {})
+        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+            content
+                .opacity(phase.isIdentity ? 1.0 : 0.8)
+                .scaleEffect(phase.isIdentity ? 1.0 : 0.96)
+                .offset(y: phase.value * 8)
+        }
     }
 
     private var statusBadge: some View {
@@ -518,11 +531,11 @@ struct NoteCard: View {
             .padding(10)
             .background(statusColor.opacity(0.12))
             .clipShape(Circle())
-            .scaleEffect(isPressed ? 0.88 : 1.0)
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isPressed)
+            .scaleEffect(isBadgePressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isBadgePressed)
         }
         .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
-            isPressed = pressing
+            isBadgePressed = pressing
         }, perform: {})
         .buttonStyle(PlainButtonStyle())
     }

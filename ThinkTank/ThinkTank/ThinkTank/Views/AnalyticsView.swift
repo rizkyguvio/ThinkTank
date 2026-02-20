@@ -412,6 +412,11 @@ struct AnalyticsView: View {
                                 ) {
                                     focusOn(ids: insight.clusterA + insight.clusterB)
                                 }
+                                .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                    content
+                                        .scaleEffect(phase.isIdentity ? 1.0 : 0.95)
+                                        .opacity(phase.isIdentity ? 1.0 : 0.7)
+                                }
                             }
                             
                             // Fading Interests
@@ -423,6 +428,11 @@ struct AnalyticsView: View {
                                     color: Pastel.peach
                                 ) {
                                     focusOnTheme(signal.themeName)
+                                }
+                                .scrollTransition(.interactive, axis: .horizontal) { content, phase in
+                                    content
+                                        .scaleEffect(phase.isIdentity ? 1.0 : 0.95)
+                                        .opacity(phase.isIdentity ? 1.0 : 0.7)
                                 }
                             }
                         }

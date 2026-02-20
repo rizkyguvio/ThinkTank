@@ -51,6 +51,11 @@ struct IdeaDetailSheet: View {
                         .foregroundStyle(Pastel.primaryText)
                         .lineSpacing(6)
                         .fixedSize(horizontal: false, vertical: true)
+                        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                            content
+                                .opacity(phase.isIdentity ? 1 : 0.6)
+                                .scaleEffect(phase.isIdentity ? 1 : 0.98)
+                        }
 
                     // Tags Section
                     VStack(alignment: .leading, spacing: 12) {
@@ -149,48 +154,57 @@ struct IdeaDetailSheet: View {
                         }
                     }
                     
-                    // Action Bar: Subtle management tools
-                    HStack(spacing: 12) {
-                        // Toggle Status: Resolved/Active
-                        let isResolved = idea.status == .resolved
-                        Button {
-                            changeStatus(to: isResolved ? .active : .resolved)
-                        } label: {
-                            Label(isResolved ? "Reactivate" : "Resolve", systemImage: isResolved ? "lightbulb.fill" : "checkmark.circle.fill")
-                                .font(.system(size: 12, weight: .bold))
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .background(isResolved ? Pastel.peach.opacity(0.1) : Pastel.sky.opacity(0.1))
-                                .foregroundStyle(isResolved ? Pastel.peach : Pastel.sky)
-                                .clipShape(Capsule())
-                        }
+                }
+                .padding(24)
+            }
+            .safeAreaInset(edge: .bottom) {
+                // Floating Action Bar: Glassmorphic pill for management
+                HStack(spacing: 12) {
+                    // Toggle Status
+                    let isResolved = idea.status == .resolved
+                    Button {
+                        changeStatus(to: isResolved ? .active : .resolved)
+                    } label: {
+                        Label(isResolved ? "Reactivate" : "Resolve", systemImage: isResolved ? "lightbulb.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .contentTransition(.symbolEffect(.replace))
+                            .padding(.horizontal, 20).padding(.vertical, 12)
+                            .background(isResolved ? Pastel.peach.opacity(0.15) : Pastel.sky.opacity(0.15))
+                            .foregroundStyle(isResolved ? Pastel.peach : Pastel.sky)
+                            .clipShape(Capsule())
+                    }
 
-                        // Archive
-                        if idea.status != .archived {
-                            Button { changeStatus(to: .archived) } label: {
-                                Label("Archive", systemImage: "archivebox")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .padding(.horizontal, 16).padding(.vertical, 10)
-                                    .background(Pastel.primaryText.opacity(0.05))
-                                    .foregroundStyle(Pastel.primaryText.opacity(0.4))
-                                    .clipShape(Capsule())
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        // Delete
-                        Button(role: .destructive) { deleteIdea() } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 14, weight: .bold))
-                                .padding(10)
-                                .background(Pastel.rose.opacity(0.1))
-                                .foregroundStyle(Pastel.rose)
+                    // Archive
+                    if idea.status != .archived {
+                        Button { changeStatus(to: .archived) } label: {
+                            Image(systemName: "archivebox.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .padding(12)
+                                .background(Pastel.primaryText.opacity(0.06))
+                                .foregroundStyle(Pastel.primaryText.opacity(0.5))
                                 .clipShape(Circle())
                         }
                     }
-                    .padding(.top, 12)
+                    
+                    Spacer()
+                    
+                    // Delete
+                    Button(role: .destructive) { deleteIdea() } label: {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .padding(12)
+                            .background(Pastel.rose.opacity(0.15))
+                            .foregroundStyle(Pastel.rose)
+                            .clipShape(Circle())
+                    }
                 }
-                .padding(24)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.08), radius: 24, x: 0, y: 12)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
             }
         }
         .presentationDetents([.medium, .large])
