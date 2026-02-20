@@ -31,6 +31,20 @@ nonisolated enum IntentEngine {
             case .learning:  return "Learning"
             }
         }
+
+        var emoji: String {
+            switch self {
+            case .groceries: return "🥗"
+            case .work:      return "💼"
+            case .health:    return "🏥"
+            case .finance:   return "💰"
+            case .creative:  return "🎨"
+            case .home:      return "🏠"
+            case .tech:      return "💻"
+            case .plans:     return "📅"
+            case .learning:  return "📚"
+            }
+        }
     }
     
     /// The confidence threshold for elevating a concept to a tag.
@@ -39,6 +53,11 @@ nonisolated enum IntentEngine {
 
     /// List of all official intent tags for mapping/obsession checks.
     static let allIntentTags: [String] = Concept.allCases.map { $0.tag }
+
+    /// Returns the emoji associated with an intent tag, if any.
+    static func emoji(for tag: String) -> String? {
+        Concept.allCases.first(where: { $0.tag.localizedCaseInsensitiveCompare(tag) == .orderedSame })?.emoji
+    }
 
     /// Pre-computed concept embeddings — generated once and cached for the process lifetime.
     /// Eliminates redundant NLEmbedding lookups on every single Rip It action.

@@ -30,11 +30,6 @@ final class RipItProcessor: ObservableObject {
     func process(content: String, in context: ModelContext) {
         let idea = Idea(content: content)
         
-        if let futureDate = DateExtractor.extractFutureDate(from: content) {
-            idea.hasReminder = true
-            NotificationEngine.shared.scheduleNotification(for: idea.id, contentText: content, at: futureDate)
-        }
-        
         context.insert(idea)
         do {
             try context.save()
@@ -211,6 +206,21 @@ final class RipItProcessor: ObservableObject {
             let graphEdge = GraphEdge(source: bgIdea, targetID: id, score: score)
             bgContext.insert(graphEdge)
         }
+
+        // Context-Aware Notifications
+        if let futureDate = DateExtractor.extractFutureDate(from: content) {
+            bgIdea.hasReminder = true
+            
+            // Pick an emoji based on the tags we just detected
+            let emoji = bgIdea.themeTags.compactMap { IntentEngine.emoji(for: $0) }.first
+            
+            NotificationEngine.shared.scheduleNotification(
+                for: bgIdea.id,
+                contentText: content,
+                at: futureDate,
+                emoji: emoji
+            )
+        }
     }
 }
 
@@ -235,9 +245,10 @@ public final class NotificationEngine {
         }
     }
     
-    public func scheduleNotification(for ideaId: UUID, contentText: String, at date: Date) {
+    public func scheduleNotification(for ideaId: UUID, contentText: String, at date: Date, emoji: String? = nil) {
         let content = UNMutableNotificationContent()
-        content.title = "A Thought Returns"
+        let emojiPrefix = emoji != nil ? "\(emoji!) " : ""
+        content.title = "\(emojiPrefix)A Thought Returns"
         content.body = contentText
         content.sound = .default
         
