@@ -361,6 +361,7 @@ struct NotesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, 140, for: .scrollContent)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: filteredIdeas.map(\.id))
     }
 
     private var emptyState: some View {
@@ -386,15 +387,10 @@ struct NotesView: View {
             HapticManager.shared.softTap()
         }
         
-        // Delay the model update so the swipe card fully dismisses
-        // before the list closes the gap. The spring animation makes
-        // the gap closure feel smooth instead of snapping shut.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                idea.status = newStatus
-            }
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        // No withAnimation — let the List's .animation() modifier
+        // be the sole source of truth for the reflow spring.
+        idea.status = newStatus
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func deleteIdea(_ idea: Idea) {
