@@ -21,6 +21,7 @@ struct NotesView: View {
     @State private var showTagPicker = false
     @State private var showRestoreAlert = false
     @State private var restoreMessage: String?
+    @State private var removingIDs: Set<UUID> = []
     
     // Unified Importer State
     enum ImporterType: Identifiable {
@@ -326,6 +327,8 @@ struct NotesView: View {
             .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 4, trailing: 20))
 
             ForEach(filteredIdeas) { idea in
+                let isRemoving = removingIDs.contains(idea.id)
+                
                 NoteCard(idea: idea) {
                     selectedIdea = idea
                 } onStatusChange: { newStatus in
@@ -337,6 +340,10 @@ struct NotesView: View {
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                // Staged removal: collapse height + fade before the data actually changes
+                .opacity(isRemoving ? 0 : 1)
+                .frame(maxHeight: isRemoving ? 0 : .infinity)
+                .clipped()
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button(role: .destructive) {
                         deleteIdea(idea)
@@ -361,7 +368,6 @@ struct NotesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, 140, for: .scrollContent)
-        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: filteredIdeas.map(\.id))
     }
 
     private var emptyState: some View {
@@ -386,11 +392,18 @@ struct NotesView: View {
         } else {
             HapticManager.shared.softTap()
         }
-        
-        // No withAnimation — let the List's .animation() modifier
-        // be the sole source of truth for the reflow spring.
-        idea.status = newStatus
-        WidgetCenter.shared.reloadAllTimelines()
+
+        // Phase 1: Collapse the card visually
+        withAnimation(.easeOut(duration: 0.25)) {
+            removingIDs.insert(idea.id)
+        }
+
+        // Phase 2: After collapse completes, update the model
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            idea.status = newStatus
+            removingIDs.remove(idea.id)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     private func deleteIdea(_ idea: Idea) {
@@ -505,12 +518,6 @@ struct NoteCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .scrollTransition(.interactive, axis: .vertical) { content, phase in
-            content
-                .opacity(phase.isIdentity ? 1.0 : 0.8)
-                .scaleEffect(phase.isIdentity ? 1.0 : 0.96)
-                .offset(y: phase.value * 8)
-        }
     }
 
     private var statusBadge: some View {
