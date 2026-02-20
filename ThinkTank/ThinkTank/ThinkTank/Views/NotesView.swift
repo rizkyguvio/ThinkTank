@@ -387,10 +387,12 @@ struct NotesView: View {
         }
         
         // Delay the model update so the swipe card fully dismisses
-        // before the list closes the gap. Without this, the exiting
-        // card and the rising row below collide visually.
+        // before the list closes the gap. The spring animation makes
+        // the gap closure feel smooth instead of snapping shut.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            idea.status = newStatus
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                idea.status = newStatus
+            }
             WidgetCenter.shared.reloadAllTimelines()
         }
     }
