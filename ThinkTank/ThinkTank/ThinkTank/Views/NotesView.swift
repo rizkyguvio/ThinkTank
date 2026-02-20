@@ -244,11 +244,11 @@ struct NotesView: View {
                         }
                         
                         if let status = filterStatus {
-                            FilterPill(label: status.label, color: Pastel.color(for: status)) { filterStatus = nil }
+                            FilterPill(label: status.label, color: Pastel.color(for: status)) { withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { filterStatus = nil } }
                         }
                         
                         if let tag = selectedTag {
-                            FilterPill(label: "#\(tag)", color: Pastel.mint) { selectedTag = nil }
+                            FilterPill(label: "#\(tag)", color: Pastel.mint) { withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { selectedTag = nil } }
                         }
                     }
                     .padding(.horizontal, 24)
@@ -501,7 +501,7 @@ struct NoteCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(NoteCardStyle())
+        .buttonStyle(.plain)
         .scrollTransition(.interactive, axis: .vertical) { content, phase in
             content
                 .opacity(phase.isIdentity ? 1.0 : 0.8)
@@ -547,18 +547,7 @@ struct NoteCard: View {
     private var statusColor: Color { Pastel.color(for: idea.status) }
 }
 
-struct NoteCardStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { _, isPressed in
-                if isPressed {
-                    HapticManager.shared.softTap()
-                }
-            }
-    }
-}
+
 
 // MARK: - System Actions Sheet
 
