@@ -459,59 +459,55 @@ struct NoteCard: View {
     @State private var isCardPressed = false
 
     var body: some View {
-        // Pure visual card - swipe actions handled by parent List
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                Text(idea.content)
-                    .font(.system(size: 17))
-                    .foregroundStyle(Pastel.primaryText)
-                    .lineLimit(4)
-                    .multilineTextAlignment(.leading)
-                
-                Spacer(minLength: 16)
-                statusBadge
-            }
-
-            HStack {
-                HStack(spacing: 5) {
-                    Image(systemName: "clock")
-                    Text(idea.createdAt, style: .relative)
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top) {
+                    Text(idea.content)
+                        .font(.system(size: 17))
+                        .foregroundStyle(Pastel.primaryText)
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
                     
-                    if idea.embedding != nil {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Pastel.accent)
-                            .opacity(0.8)
-                    }
-                    
-                    if idea.hasReminder {
-                        Image(systemName: "bell.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Pastel.sky)
-                            .opacity(0.8)
-                    }
+                    Spacer(minLength: 16)
+                    statusBadge
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(Pastel.primaryText.opacity(0.4))
 
-                Spacer()
-                tagsView
+                HStack {
+                    HStack(spacing: 5) {
+                        Image(systemName: "clock")
+                        Text(idea.createdAt, style: .relative)
+                        
+                        if idea.embedding != nil {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Pastel.accent)
+                                .opacity(0.8)
+                        }
+                        
+                        if idea.hasReminder {
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Pastel.sky)
+                                .opacity(0.8)
+                        }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(Pastel.primaryText.opacity(0.4))
+
+                    Spacer()
+                    tagsView
+                }
             }
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Pastel.primaryText.opacity(0.04))
+                    .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 6)
+                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(statusColor.opacity(0.15), lineWidth: 1))
+            )
+            .contentShape(Rectangle())
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Pastel.primaryText.opacity(0.04))
-                .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 6)
-                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(statusColor.opacity(0.15), lineWidth: 1))
-        )
-        .contentShape(Rectangle())
-        .scaleEffect(isCardPressed ? 0.96 : 1.0)
-        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: isCardPressed)
-        .onTapGesture { onTap() }
-        .onLongPressGesture(minimumDuration: 0.1, pressing: { pressing in 
-            isCardPressed = pressing 
-        }, perform: {})
+        .buttonStyle(NoteCardStyle())
         .scrollTransition(.interactive, axis: .vertical) { content, phase in
             content
                 .opacity(phase.isIdentity ? 1.0 : 0.8)
@@ -555,6 +551,19 @@ struct NoteCard: View {
     }
 
     private var statusColor: Color { Pastel.color(for: idea.status) }
+}
+
+struct NoteCardStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                if isPressed {
+                    HapticManager.shared.softTap()
+                }
+            }
+    }
 }
 
 // MARK: - System Actions Sheet
