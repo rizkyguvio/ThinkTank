@@ -399,7 +399,7 @@ struct NotesView: View {
         }
 
         // Phase 2: After collapse completes, update the model
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             idea.status = newStatus
             removingIDs.remove(idea.id)
             WidgetCenter.shared.reloadAllTimelines()
