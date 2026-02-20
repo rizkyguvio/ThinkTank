@@ -361,7 +361,6 @@ struct NotesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, 140, for: .scrollContent)
-        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: filteredIdeas.map(\.id))
     }
 
     private var emptyState: some View {
@@ -387,16 +386,8 @@ struct NotesView: View {
             HapticManager.shared.softTap()
         }
         
-        // Delay the model update so the swipe dismiss animation
-        // completes before the list reflows to close the gap.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            var transaction = Transaction()
-            transaction.animation = .spring(response: 0.4, dampingFraction: 0.85)
-            withTransaction(transaction) {
-                idea.status = newStatus
-            }
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+        idea.status = newStatus
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func deleteIdea(_ idea: Idea) {
