@@ -237,7 +237,7 @@ public final class NotificationEngine {
     
     public func scheduleNotification(for ideaId: UUID, contentText: String, at date: Date) {
         let content = UNMutableNotificationContent()
-        content.title = "Think Tank Reminder"
+        content.title = "A Thought Returns"
         content.body = contentText
         content.sound = .default
         
