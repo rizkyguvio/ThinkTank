@@ -361,6 +361,7 @@ struct NotesView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .contentMargins(.bottom, 140, for: .scrollContent)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: filteredIdeas.map(\.id))
     }
 
     private var emptyState: some View {
@@ -386,9 +387,11 @@ struct NotesView: View {
             HapticManager.shared.softTap()
         }
         
-        withAnimation(.easeInOut(duration: 0.3)) {
-            idea.status = newStatus
-        }
+        // Update immediately — no animation wrapper.
+        // The swipe action handles its own dismiss animation.
+        // The List's .animation() modifier drives the spring reflow
+        // when filteredIdeas changes.
+        idea.status = newStatus
         WidgetCenter.shared.reloadAllTimelines()
     }
 
