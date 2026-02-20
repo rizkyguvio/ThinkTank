@@ -394,12 +394,12 @@ struct NotesView: View {
         }
 
         // Phase 1: Collapse the card visually
-        withAnimation(.easeOut(duration: 0.25)) {
+        withAnimation(.easeOut(duration: 0.45)) {
             removingIDs.insert(idea.id)
         }
 
         // Phase 2: After collapse completes, update the model
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             idea.status = newStatus
             removingIDs.remove(idea.id)
             WidgetCenter.shared.reloadAllTimelines()
