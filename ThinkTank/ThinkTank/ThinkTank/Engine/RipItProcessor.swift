@@ -35,6 +35,7 @@ final class RipItProcessor: ObservableObject {
             try context.save()
         } catch {
             print("❌ [RipItProcessor] Failed to save initial idea to context: \(error)")
+            return // Can't proceed — background task won't find this idea
         }
 
         isProcessing = true
@@ -221,6 +222,9 @@ final class RipItProcessor: ObservableObject {
                 emoji: emoji
             )
         }
+
+        // Persist all pipeline changes (tags, edges, hasReminder)
+        try? bgContext.save()
     }
 }
 

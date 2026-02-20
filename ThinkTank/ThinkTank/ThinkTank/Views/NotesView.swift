@@ -387,11 +387,14 @@ struct NotesView: View {
             HapticManager.shared.softTap()
         }
         
-        // Phase 1: Update the model immediately.
-        idea.status = newStatus
-        
-        // Phase 2: Widget reload (no animation override)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        // Delay the model update so the swipe dismiss animation
+        // completes before the list reflows to close the gap.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            var transaction = Transaction()
+            transaction.animation = .spring(response: 0.4, dampingFraction: 0.85)
+            withTransaction(transaction) {
+                idea.status = newStatus
+            }
             WidgetCenter.shared.reloadAllTimelines()
         }
     }

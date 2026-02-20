@@ -89,18 +89,20 @@ struct IdeaWebView: View {
                     let isSelected = selection.contains(node.id)
                     let color = Pastel.color(for: node.status)
                     
-                    // Highlight selected
-                    if isSelected {
-                        context.addFilter(.shadow(color: Pastel.accent.opacity(alpha), radius: 10))
-                    } else if node.isCognitiveCore {
-                        context.addFilter(.shadow(color: Pastel.accent.opacity(alpha * 0.3), radius: 6))
-                    }
+                    // Use drawLayer to isolate shadow filters per node
+                    context.drawLayer { nodeCtx in
+                        if isSelected {
+                            nodeCtx.addFilter(.shadow(color: Pastel.accent.opacity(alpha), radius: 10))
+                        } else if node.isCognitiveCore {
+                            nodeCtx.addFilter(.shadow(color: Pastel.accent.opacity(alpha * 0.3), radius: 6))
+                        }
 
-                    let nodePath = Path(ellipseIn: rect)
-                    context.fill(nodePath, with: .color(color.opacity(alpha)))
+                        let nodePath = Path(ellipseIn: rect)
+                        nodeCtx.fill(nodePath, with: .color(color.opacity(alpha)))
 
-                    if node.isCognitiveCore || isSelected {
-                        context.stroke(nodePath, with: .color(isSelected ? Pastel.accent : Pastel.primaryText.opacity(alpha * 0.8)), lineWidth: isSelected ? 3 : 2)
+                        if node.isCognitiveCore || isSelected {
+                            nodeCtx.stroke(nodePath, with: .color(isSelected ? Pastel.accent : Pastel.primaryText.opacity(alpha * 0.8)), lineWidth: isSelected ? 3 : 2)
+                        }
                     }
                 }
             }
@@ -125,6 +127,7 @@ struct IdeaWebView: View {
                 
                 // Wake up simulation on interaction
                 layout.isSettled = false
+                layout.startSimulation()
                 
             } else if let intent = findStar(at: location) {
                 onStarTapped?(intent)
@@ -140,7 +143,8 @@ struct IdeaWebView: View {
                         dragTargetID = id
                         layout.nodes[id]?.position = value.location
                         layout.nodes[id]?.velocity = .zero
-                        layout.isSettled = false // Keep simulation alive while dragging
+                        layout.isSettled = false
+                        layout.startSimulation() // Keep simulation alive while dragging
                         
                         // Ghost Link Logic
                         updateGhostLink(for: id)
@@ -154,7 +158,8 @@ struct IdeaWebView: View {
                 .onEnded { _ in
                     dragTargetID = nil
                     ghostLink = nil
-                    layout.isSettled = false // Let physics settle after drag release
+                    layout.isSettled = false
+                    layout.startSimulation() // Let physics settle after drag release
                 }
         )
     }

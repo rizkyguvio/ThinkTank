@@ -28,7 +28,10 @@ final class BackupManager {
                 createdAt: idea.createdAt,
                 extractedKeywords: idea.extractedKeywords,
                 themeTags: idea.themeTags,
-                statusRaw: idea.statusRaw
+                statusRaw: idea.statusRaw,
+                hasReminder: idea.hasReminder,
+                embedding: idea.embedding,
+                similarityVector: idea.similarityVector
             )
         }
         
@@ -163,6 +166,11 @@ final class BackupManager {
                 idea.extractedKeywords = item.extractedKeywords
                 idea.themeTags = item.themeTags
                 idea.statusRaw = item.statusRaw
+                idea.hasReminder = item.hasReminder ?? false
+                idea.embedding = item.embedding
+                if let vecData = item.similarityVector {
+                    idea.similarityVector = vecData
+                }
                 
                 modelContext.insert(idea)
                 restoredCount += 1
@@ -183,6 +191,9 @@ struct IdeaBackupDTO: Codable {
     let extractedKeywords: [String]
     let themeTags: [String]
     let statusRaw: String
+    let hasReminder: Bool?
+    let embedding: [Double]?
+    let similarityVector: Data?
 }
 
 enum BackupError: Error {

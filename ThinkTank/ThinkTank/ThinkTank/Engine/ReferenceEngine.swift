@@ -34,44 +34,44 @@ final class ReferenceEngine: ObservableObject {
         
         // Debounce to avoid overloading the background thread
         searchTask?.cancel()
-        searchTask = Task {
+        searchTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             if Task.isCancelled { return }
             
             guard let container = self.container else { return }
-            let bgContext = ModelContext(container)
             
-            // 1. Semantic Search
-            if let currentEmbedding = SemanticProcessor.generateEmbedding(for: text) {
-                let descriptor = FetchDescriptor<Idea>(
-                    sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-                )
-                
-                // Fetch last 100 for candidate pool
-                let candidates = (try? bgContext.fetch(descriptor))?.prefix(100) ?? []
-                
-                let matches: [(id: UUID, embedding: [Double])] = candidates.compactMap {
-                    guard let emb = $0.embedding else { return nil }
-                    return ($0.id, emb)
-                }
-                
-                let results = SimilarityEngine.computeSemanticEdges(
-                    newEmbedding: currentEmbedding,
-                    candidates: matches,
-                    threshold: 0.72 // Slightly lower threshold for suggestions
-                )
-                .sorted { $0.score > $1.score }
-                .prefix(3)
-                
-                let resultIDs = results.map { $0.targetID }
-                
-                // 2. Fetch the actual full ideas on main actor
-                let finalIdeas = candidates.filter { resultIDs.contains($0.id) }
-                
-                await MainActor.run {
-                    self.suggestions = Array(finalIdeas)
-                }
+            // Generate embedding off-main-thread (CPU heavy)
+            let currentEmbedding = await Task.detached(priority: .utility) {
+                SemanticProcessor.generateEmbedding(for: text)
+            }.value
+            
+            guard let currentEmbedding else { return }
+            if Task.isCancelled { return }
+            
+            // ModelContext operations stay on MainActor
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<Idea>(
+                sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+            )
+            
+            // Fetch last 100 for candidate pool
+            let candidates = (try? context.fetch(descriptor))?.prefix(100) ?? []
+            
+            let matches: [(id: UUID, embedding: [Double])] = candidates.compactMap {
+                guard let emb = $0.embedding else { return nil }
+                return ($0.id, emb)
             }
+            
+            let results = SimilarityEngine.computeSemanticEdges(
+                newEmbedding: currentEmbedding,
+                candidates: matches,
+                threshold: 0.72
+            )
+            .sorted { $0.score > $1.score }
+            .prefix(3)
+            
+            let resultIDs = results.map { $0.targetID }
+            self.suggestions = Array(candidates.filter { resultIDs.contains($0.id) })
         }
     }
 }

@@ -24,11 +24,7 @@ nonisolated struct LayoutNode: Identifiable, Sendable {
 @MainActor
 final class ForceDirectedLayout: ObservableObject {
     var nodes: [UUID: LayoutNode] = [:]
-    @Published var isSettled: Bool = false {
-        didSet {
-            if !isSettled { startSimulation() }
-        }
-    }
+    @Published var isSettled: Bool = false
     
     private var displayLink: CADisplayLink?
     private var tickCounter: Int = 0
@@ -85,6 +81,7 @@ final class ForceDirectedLayout: ObservableObject {
         let ideaIDs = Set(ideas.map(\.id))
         nodes = nodes.filter { ideaIDs.contains($0.key) }
         isSettled = false
+        startSimulation()
     }
 
     /// Calculate combined opacity for immersive filtering
