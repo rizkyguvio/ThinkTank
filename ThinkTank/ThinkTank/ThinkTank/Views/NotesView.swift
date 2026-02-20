@@ -386,7 +386,9 @@ struct NotesView: View {
             HapticManager.shared.softTap()
         }
         
-        idea.status = newStatus
+        withAnimation(.easeInOut(duration: 0.3)) {
+            idea.status = newStatus
+        }
         WidgetCenter.shared.reloadAllTimelines()
     }
 
